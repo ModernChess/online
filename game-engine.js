@@ -1,4 +1,4 @@
-// game-engine.js - Main session orchestrator and lifecycle manager with Coin Economy Integration
+// game-engine.js - Main session orchestrator and lifecycle manager with Coin Economy & Audio Integration
 import { db, ref, update } from './network.js';
 import { showScreen } from './ui-manager.js';
 import { cols, rows, spawnTeamUnits } from './game-config.js';
@@ -10,6 +10,7 @@ import { resolveCombat, processDestructions, unitsToDestroy } from './combat-mec
 import { ensureBuyUnitsModal, handleUnitDeployment, getPendingUnitType, setPendingUnitType, cleanupUnitDeployerPopup, setTeamCoinsRef, setCurrentTeamRef, getTeamCoins } from './deployment.js';
 import { tileCaptures, initTileCaptures, parseCoord, rbList, bbList } from './team-logic.js';
 import { createConsoleLogger, updateTurnButtonState, ensureGameActionButtons, updateGlobalCoinHUD } from './game-controls.js';
+import { triggerSelectSound, triggerMoveSound } from './sound.js';
 
 let currentMatchId = null;
 let playerTeam = null;
@@ -35,7 +36,6 @@ export function startGameSession(matchId, team, user, onLeaveCallback) {
     currentTurn = 'blue';
     teamCoins = { blue: 0, red: 0 };
     
-    // Explicitly sync the team and coin contexts into the deployment module
     setTeamCoinsRef(teamCoins);
     setCurrentTeamRef(playerTeam);
 
@@ -68,7 +68,6 @@ export function startGameSession(matchId, team, user, onLeaveCallback) {
 
     ensureGameActionButtons(matchIdRef, teamRef, turnRef, movedUnitsThisTurn, animRef, onLeaveCallback, logToConsole, () => updateTurnButtonState(currentTurn, playerTeam));
     
-    // Pass proper callbacks so deployment checks evaluate the active client player team and units correctly
     ensureBuyUnitsModal(
         logToConsole, 
         () => units, 
@@ -201,6 +200,7 @@ function initCanvasGame() {
             if (clickedUnit.team === playerTeam) {
                 selectedUnit = clickedUnit;
                 selectionAnimStartTime = performance.now();
+                triggerSelectSound(selectedUnit.name);
 
                 if (currentTurn !== playerTeam) {
                     legalMoves = [];
@@ -217,6 +217,7 @@ function initCanvasGame() {
             } else {
                 selectedUnit = clickedUnit;
                 selectionAnimStartTime = performance.now();
+                triggerSelectSound(selectedUnit.name);
                 legalMoves = [];
                 updateUnitRangeOverlayButton(canvas, selectedUnit, localTeam, logToConsole);
                 logToConsole(`Inspecting enemy unit: ${selectedUnit.name} (${selectedUnit.team}) at [${clickedCol}, ${clickedRow}]`);
@@ -241,6 +242,8 @@ function initCanvasGame() {
 
             let isLegalMove = legalMoves.some(m => m.c === clickedCol && m.r === clickedRow);
             if (isLegalMove) {
+                triggerMoveSound(selectedUnit.name);
+
                 selectedUnit.animFromX = selectedUnit.gridX;
                 selectedUnit.animFromY = selectedUnit.gridY;
                 selectedUnit.animStartTime = performance.now();
