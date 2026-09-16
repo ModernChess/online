@@ -1,1 +1,156 @@
-hdhdhd
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Modern Chess Online - DevOnline</title>
+    
+    <!-- Independent Logger Script loaded first -->
+    <script src="logger.js"></script>
+    
+    <!-- External Stylesheet -->
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+    <!-- LOADING SCREEN OVERLAY -->
+    <div id="loading-overlay">
+        <div class="spinner"></div>
+        <div class="loading-text">Loading Modern Chess Online...</div>
+    </div>
+
+    <div class="version-badge">devonline v3.5 FixedjoiningScript</div>
+    
+    <!-- WRAPPER TO CONTROL RESPONSIVE SIZING ON PC & MOBILE -->
+    <div class="app-wrapper">
+
+        <!-- Active Players List Sidebar Drawer -->
+        <div class="players-bar" id="playersBar">
+            <div class="players-bar-header">
+                <div class="online-indicator">
+                    <div class="status-dot" id="statusDot"></div>
+                    <span id="onlineCountText">Active Players (0)</span>
+                </div>
+                <span style="color:var(--secondary); font-size:0.7rem;">Players List ▲</span>
+            </div>
+            <div class="players-list" id="playersListContainer">
+                <div style="color:var(--text-muted); font-size:0.75rem; text-align:center;">No players online</div>
+            </div>
+        </div>
+
+        <!-- 1. LOGIN SCREEN -->
+        <div id="login-screen" class="screen active">
+            <div class="card">
+                <h2>Modern Chess Login</h2>
+                <div class="accounts-box">
+                    <div class="accounts-title">Preset Accounts (Pass: 123)</div>
+                    <div class="account-item">player1 - player10</div>
+                </div>
+                <div class="input-group">
+                    <label>Username</label>
+                    <input type="text" id="userInput" placeholder="e.g. player1">
+                </div>
+                <div class="input-group">
+                    <label>Password</label>
+                    <input type="password" id="passInput" placeholder="e.g. 123">
+                </div>
+                <button class="btn" id="loginBtn">Login</button>
+                <div class="error-msg" id="loginError"></div>
+            </div>
+        </div>
+
+        <!-- RECONNECTION PROMPT SCREEN -->
+        <div id="reconnect-screen" class="screen">
+            <div class="card">
+                <h2>Active Match Found</h2>
+                <p style="font-size:0.85rem; color:var(--text-muted); margin-bottom:15px;">You have an ongoing match session saved. Would you like to rejoin or terminate it?</p>
+                <button class="btn btn-secondary" id="rejoinYesBtn">Rejoin Match</button>
+                <button class="btn btn-danger" id="rejoinNoBtn" style="margin-top:10px;">Terminate & Go to Lobby</button>
+            </div>
+        </div>
+
+        <!-- 2. LOBBY SCREEN -->
+        <div id="lobby-screen" class="screen">
+            <div class="card">
+                <div class="top-bar">
+                    <span id="welcomeUser" style="font-weight:bold; color:var(--primary);"></span>
+                    <button class="btn btn-danger" id="logoutBtn" style="width:auto; padding:4px 8px; font-size:0.75rem; margin:0;">Logout</button>
+                </div>
+                <h2>Server Lobby</h2>
+                <button class="btn" id="createServerBtn">Create New Server</button>
+                
+                <button class="btn btn-danger" id="adminClearBtn" style="background:#d32f2f; margin-top:8px; font-size:0.8rem;">Admin: Clear All Matches & Data</button>
+
+                <div style="margin: 8px 0 4px 0; font-size:0.75rem; color:var(--text-muted); text-align:left;">Available Servers:</div>
+                <div class="server-list" id="serverList">
+                    <div style="color:var(--text-muted); font-size:0.8rem; text-align:center; margin-top:20px;">No servers active. Create one!</div>
+                </div>
+            </div>
+
+            <!-- Universal Global Lobby Chat Widget -->
+            <div class="global-chat-widget">
+                <div class="global-chat-header">
+                    <span>Universal Global Chat</span>
+                    <span style="font-size:0.7rem; color:var(--text-muted);">Lobby Public</span>
+                </div>
+                <div class="global-chat-body" id="globalChatMessages"></div>
+                <div class="global-chat-input-area">
+                    <input type="text" id="globalChatInput" placeholder="Chat with everyone in lobby...">
+                    <button class="btn btn-secondary" id="globalChatSend">Send</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 3. WAITING ROOM SCREEN -->
+        <div id="wait-screen" class="screen">
+            <div class="card">
+                <h2>Waiting for Opponent...</h2>
+                <p style="font-size:0.85rem; color:var(--text-muted);">You created this server. Waiting for 1 more player to join as Red Team.</p>
+                <div id="roomCodeDisplay" style="font-size:0.8rem; color:#ffeb3b; margin-bottom:15px;"></div>
+                <button class="btn btn-danger" id="cancelRoomBtn">Cancel & Leave</button>
+            </div>
+        </div>
+
+        <!-- 4. GAME SCREEN -->
+        <div id="game-screen" class="screen">
+            <div class="top-bar">
+                <span id="playerTeamBadge" style="font-weight:bold; font-size:0.8rem;"></span>
+                <button class="btn btn-danger" id="surrenderBtn" style="width:auto; padding:4px 8px; font-size:0.75rem; margin:0;">Surrender / Leave</button>
+            </div>
+            
+            <div class="status-banner" id="statusBanner">Connecting to match...</div>
+
+            <div id="canvas-container">
+                <canvas id="gameCanvas"></canvas>
+            </div>
+
+            <div class="chat-widget">
+                <div class="chat-header" id="chatToggle">
+                    <span>Match Chat</span>
+                    <span>▲</span>
+                </div>
+                <div class="chat-body" id="chatMessages"></div>
+                <div class="chat-input-area">
+                    <input type="text" id="chatInput" placeholder="Say something...">
+                    <button class="btn btn-secondary" id="chatSend">Send</button>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- Hide loading screen automatically when window fully loads -->
+    <script>
+        window.addEventListener('load', () => {
+            const loader = document.getElementById('loading-overlay');
+            if (loader) {
+                loader.style.opacity = '0';
+                setTimeout(() => loader.remove(), 400);
+            }
+        });
+    </script>
+
+    <!-- Pointing to the new UI lobby entry module -->
+    <script type="module" src="ui-lobby.js"></script>
+</body>
+</html>
