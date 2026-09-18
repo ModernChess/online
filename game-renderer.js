@@ -1,4 +1,4 @@
-// game-renderer.js - Handles Canvas Drawing, Map Background Rendering, Unit Visuals, Glide Animations, Tile Highlighting, and Perspective Flipping
+// game-renderer.js - Handles Canvas Drawing, Map Background Rendering, Unit Visuals, Glide Animations, Tile Highlighting, and Stalemate Badges
 import { 
     cols, rows, 
     blueAntiairImg, blueAntiairLoaded, redAntiairImg, redAntiairLoaded, 
@@ -9,14 +9,13 @@ import {
     bluePlaneImg, bluePlaneLoaded, redPlaneImg, redPlaneLoaded, 
     blueShipImg, blueShipLoaded, redShipImg, redShipLoaded, 
     blueTankImg, blueTankLoaded, redTankImg, redTankLoaded, 
-    mapImg, mapLoaded, isWaterTerrain,
-    colLetterToIndex, goldCoreList, goldList, artList, tList, rbList, bbList, navList, bbcList, rbcList 
+    mapImg, mapLoaded, isWaterTerrain 
 } from './game-config.js';
 import { applyCameraTransform } from './viewport.js';
 import { getUnitRange, getShowUnitRange, getEngineerRangeTiles } from './unit-movement.js';
-import { getSuperunitsForTeam, getUnitMacroRangeTiles } from './combat-mechanics.js';
+import { getSuperunitsForTeam, getUnitMacroRangeTiles, stalematedUnits } from './combat-mechanics.js';
 import { tileCaptures } from './team-logic.js';
-import { getPendingUnitType } from './deployment.js';
+import { spawnSmokeTrail, drawSmokeParticles, drawCapturedTileBadges, drawCapturedTileFireAndSmoke, drawDeploymentOverlay } from './renderer-helpers.js';
 
 let superunitBadgeCache = new Map();
 let cachedUnitsForDeployment = [];
@@ -30,48 +29,6 @@ export function updateRendererUnits(units) {
 export function getUnitAtCoordinate(gx, gy) {
     return cachedUnitsForDeployment.find(u => Number(u.gridX) === Number(gx) && Number(u.gridY) === Number(gy)) || null;
 }
-
-function toCoordSet(list) {
-    const set = new Set();
-    list.forEach(item => {
-        let m = item.match(/^([A-Z]+)(\d+)$/);
-        if (m) set.add(`${colLetterToIndex(m[1])},${parseInt(m[2], 10) - 18}`);
-    });
-    return set;
-}
-
-const deploymentRules = {
-    infantry: new Set([...toCoordSet(goldCoreList), ...toCoordSet(goldList), ...toCoordSet(rbList), ...toCoordSet(bbList), ...toCoordSet(bbcList), ...toCoordSet(rbcList)]),
-    artillery: toCoordSet(artList),
-    antiair: toCoordSet(artList),
-    engineer: toCoordSet(artList),
-    mine: toCoordSet(artList),
-    tank: toCoordSet(tList),
-    plane: toCoordSet(tList),
-    ship: toCoordSet(navList)
-};
-
-const unitColors = {
-    infantry: 'rgba(0, 128, 0, 0.35)',     // Green
-    ship: 'rgba(128, 0, 128, 0.35)',         // Purple
-    antiair: 'rgba(0, 255, 255, 0.35)',      // Cyan
-    engineer: 'rgba(0, 0, 0, 0.35)',         // Black
-    mine: 'rgba(255, 0, 0, 0.35)',           // Red
-    tank: 'rgba(128, 128, 128, 0.35)',       // Grey
-    plane: 'rgba(0, 0, 255, 0.35)',          // Blue
-    artillery: 'rgba(255, 165, 0, 0.35)'     // Orange
-};
-
-const unitBorderColors = {
-    infantry: '#008000',
-    ship: '#800080',
-    antiair: '#00ffff',
-    engineer: '#000000',
-    mine: '#ff0000',
-    tank: '#808080',
-    plane: '#0000ff',
-    artillery: '#ffa500'
-};
 
 export function getRenderCoordinates(gridX, gridY, canvasWidth, localTeam) {
     let cellSize = canvasWidth / cols;
@@ -89,7 +46,6 @@ export function getRenderCoordinates(gridX, gridY, canvasWidth, localTeam) {
 export function drawGameScene(ctx, canvas, units, selectedUnit, localTeam, legalMoves = [], selectionAnimStartTime = null) {
     if (!ctx || !canvas) return;
     
-    // Keep deployment sync cache fresh right at frame start
     updateRendererUnits(units);
 
     ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -110,75 +66,17 @@ export function drawGameScene(ctx, canvas, units, selectedUnit, localTeam, legal
     }
     ctx.restore();
 
-    // Render captured tile team badges
-    if (tileCaptures) {
-        ctx.save();
-        for (let key in tileCaptures) {
-            let tileInfo = tileCaptures[key];
-            if (tileInfo && tileInfo.capturedBy) {
-                let parts = key.split(',');
-                if (parts.length === 2) {
-                    let gx = parseInt(parts[0], 10);
-                    let gy = parseInt(parts[1], 10);
-                    let pos = getRenderCoordinates(gx, gy, canvas.width, localTeam);
+    // Render captured tile team badges using helpers
+    drawCapturedTileBadges(ctx, canvas, tileCaptures, getRenderCoordinates, localTeam);
 
-                    let badgeColor = tileInfo.capturedBy === 'blue' ? '#2196F3' : '#ff5252';
-                    
-                    let badgeRadius = pos.cellSize * 0.18;
-                    let badgeX = pos.x + pos.cellSize - badgeRadius - 4;
-                    let badgeY = pos.y + badgeRadius + 4;
+    // Render captured tile fire and smoke visual animation system
+    drawCapturedTileFireAndSmoke(ctx, canvas, tileCaptures, getRenderCoordinates, localTeam);
 
-                    ctx.fillStyle = badgeColor;
-                    ctx.strokeStyle = '#ffffff';
-                    ctx.lineWidth = 1.5;
+    // Smoke particle animation loop using helpers
+    drawSmokeParticles(ctx);
 
-                    ctx.beginPath();
-                    ctx.arc(badgeX, badgeY, badgeRadius, 0, Math.PI * 2);
-                    ctx.fill();
-                    ctx.stroke();
-                }
-            }
-        }
-        ctx.restore();
-    }
-
-    // 4. Render Semi-Transparent Fills and Dashed Outlines for Valid Deployment Tiles when pendingUnitType is active
-    let activePendingType = getPendingUnitType();
-    if (activePendingType) {
-        let typeKey = activePendingType.toLowerCase();
-        let allowedTiles = deploymentRules[typeKey];
-        let fillColor = unitColors[typeKey] || 'rgba(33, 150, 243, 0.35)';
-        let strokeColor = unitBorderColors[typeKey] || '#2196F3';
-
-        if (allowedTiles) {
-            ctx.save();
-            for (let key in tileCaptures) {
-                let tileInfo = tileCaptures[key];
-                if (tileInfo && tileInfo.capturedBy === localTeam && allowedTiles.has(key)) {
-                    let parts = key.split(',');
-                    if (parts.length === 2) {
-                        let gx = parseInt(parts[0], 10);
-                        let gy = parseInt(parts[1], 10);
-                        
-                        // Check if any unit already occupies these coordinates, and skip if true
-                        let isOccupied = units.some(u => u.gridX === gx && u.gridY === gy);
-                        if (isOccupied) continue;
-
-                        let pos = getRenderCoordinates(gx, gy, canvas.width, localTeam);
-                        
-                        ctx.fillStyle = fillColor;
-                        ctx.fillRect(pos.x + 2, pos.y + 2, pos.cellSize - 4, pos.cellSize - 4);
-
-                        ctx.strokeStyle = strokeColor;
-                        ctx.lineWidth = 2;
-                        ctx.setLineDash([4, 4]);
-                        ctx.strokeRect(pos.x + 2, pos.y + 2, pos.cellSize - 4, pos.cellSize - 4);
-                    }
-                }
-            }
-            ctx.restore();
-        }
-    }
+    // Deployment placement highlights using helpers
+    drawDeploymentOverlay(ctx, canvas, tileCaptures, units, getRenderCoordinates, localTeam);
 
     if (selectedUnit && legalMoves && legalMoves.length > 0) {
         ctx.save();
@@ -228,7 +126,6 @@ export function drawGameScene(ctx, canvas, units, selectedUnit, localTeam, legal
             
             if (rangeVal > 0) {
                 let macroSize = 2;
-
                 let unitMCol = Math.floor(unit.gridX / macroSize);
                 let unitMRow = Math.floor(unit.gridY / macroSize);
 
@@ -316,11 +213,13 @@ export function drawGameScene(ctx, canvas, units, selectedUnit, localTeam, legal
 
     let singleBadgeMap = new Map();
     let currentClusterKeys = new Set();
+    let teamSuperunitsMap = new Map();
 
     ['blue', 'red'].forEach(teamName => {
         let suList = getSuperunitsForTeam(teamName, units);
+        teamSuperunitsMap.set(teamName, suList);
         suList.forEach(su => {
-            if (su.units && su.units.length > 1) {
+            if (su.units && su.units.length > 0) {
                 let sortedIds = su.units.map(u => u.id).sort((a, b) => a - b);
                 let clusterKey = sortedIds.join(',');
                 currentClusterKeys.add(clusterKey);
@@ -333,7 +232,9 @@ export function drawGameScene(ctx, canvas, units, selectedUnit, localTeam, legal
                     superunitBadgeCache.set(clusterKey, repUnit.id);
                 }
 
-                singleBadgeMap.set(repUnit.id, su.power);
+                if (su.units.length > 1) {
+                    singleBadgeMap.set(repUnit.id, su.power);
+                }
             }
         });
     });
@@ -350,10 +251,15 @@ export function drawGameScene(ctx, canvas, units, selectedUnit, localTeam, legal
         if (unit.animX === undefined || unit.animY === undefined) {
             unit.animX = targetPos.x;
             unit.animY = targetPos.y;
-        } else {
-            unit.animX += (targetPos.x - unit.animX) * 0.07;
-            unit.animY += (targetPos.y - unit.animY) * 0.07;
         }
+
+        let prevX = unit.animX;
+        let prevY = unit.animY;
+
+        unit.animX += (targetPos.x - unit.animX) * 0.05;
+        unit.animY += (targetPos.y - unit.animY) * 0.05;
+
+        spawnSmokeTrail(unit, prevX, prevY, targetPos.cellSize);
 
         let floatOffset = 0;
         let isSelected = selectedUnit && selectedUnit.id === unit.id;
@@ -386,6 +292,35 @@ export function drawGameScene(ctx, canvas, units, selectedUnit, localTeam, legal
 
         let renderDrawY = unit.animY + floatOffset;
 
+        // --- DIRECTIONAL ROTATION & FAST ANIMATION CALCULATION ---
+        let fromX = unit.animFromX !== undefined ? unit.animFromX : unit.gridX;
+        let fromY = unit.animFromY !== undefined ? unit.animFromY : unit.gridY;
+        let dx = unit.gridX - fromX;
+        let dy = unit.gridY - fromY;
+
+        let targetAngle = 0; // Default North (Up)
+        if (dx === 0 && dy < 0) targetAngle = 0;                      // Up
+        else if (dx > 0 && dy < 0) targetAngle = Math.PI / 4;        // Up-Right (45°)
+        else if (dx > 0 && dy === 0) targetAngle = Math.PI / 2;      // Right (90°)
+        else if (dx > 0 && dy > 0) targetAngle = (3 * Math.PI) / 4;  // Down-Right (135°)
+        else if (dx === 0 && dy > 0) targetAngle = Math.PI;          // Down (180°)
+        else if (dx < 0 && dy > 0) targetAngle = -(3 * Math.PI) / 4; // Down-Left (-135°)
+        else if (dx < 0 && dy === 0) targetAngle = -Math.PI / 2;     // Left (-90°)
+        else if (dx < 0 && dy < 0) targetAngle = -Math.PI / 4;       // Up-Left (-45°)
+
+        if (localTeam === 'red') {
+            targetAngle += Math.PI;
+        }
+
+        if (unit.visualAngle === undefined) {
+            unit.visualAngle = targetAngle;
+        } else {
+            let angleDiff = targetAngle - unit.visualAngle;
+            // Shortest path angle wrap handling
+            angleDiff = Math.atan2(Math.sin(angleDiff), Math.cos(angleDiff));
+            unit.visualAngle += angleDiff * 0.35; // 0.35 interpolation factor makes it spin very quickly and smoothly
+        }
+
         let unitImg = null;
         let isLoaded = false;
         if (unit.team === 'blue') {
@@ -408,14 +343,32 @@ export function drawGameScene(ctx, canvas, units, selectedUnit, localTeam, legal
             else if (unit.name === 'Tank') { unitImg = redTankImg; isLoaded = redTankLoaded; }
         }
 
+        let cellCenterX = unit.animX + targetPos.cellSize / 2;
+        let cellCenterY = renderDrawY + targetPos.cellSize / 2;
+        let drawSize = (targetPos.cellSize - 4) * 2.0; // 100% larger size
+
+        ctx.save();
+        ctx.translate(cellCenterX, cellCenterY);
+        ctx.rotate(unit.visualAngle);
+
         if (isLoaded && unitImg && unitImg.complete) {
-            ctx.drawImage(unitImg, unit.animX + 2, renderDrawY + 2, targetPos.cellSize - 4, targetPos.cellSize - 4);
+            // 1. Back Layer: Increased silhouette size multiplier (1.14x) for a slightly bigger black outline boundary
+            ctx.save();
+            ctx.filter = 'brightness(0)'; // Turns the image completely black
+            ctx.globalAlpha = 0.5;        // Semi-transparent
+            let outlineSize = drawSize * 1.14; 
+            ctx.drawImage(unitImg, -outlineSize / 2, -outlineSize / 2, outlineSize, outlineSize);
+            ctx.restore();
+
+            // 2. Front Layer: Draw the original unit sprite cleanly on top
+            ctx.drawImage(unitImg, -drawSize / 2, -drawSize / 2, drawSize, drawSize);
         } else {
             ctx.fillStyle = unit.team === 'blue' ? '#2196F3' : '#ff5252';
             ctx.beginPath();
-            ctx.arc(unit.animX + targetPos.cellSize / 2, renderDrawY + targetPos.cellSize / 2, targetPos.cellSize / 2.5, 0, Math.PI * 2);
+            ctx.arc(0, 0, targetPos.cellSize / 2.5, 0, Math.PI * 2);
             ctx.fill();
         }
+        ctx.restore();
 
         if (isSelected) {
             ctx.strokeStyle = '#f1c40f';
@@ -429,13 +382,21 @@ export function drawGameScene(ctx, canvas, units, selectedUnit, localTeam, legal
             ctx.strokeRect(unit.animX + 4, renderDrawY + 4, targetPos.cellSize - 8, targetPos.cellSize - 8);
         }
 
+        // --- STALEMATE & SUPERUNIT POWER BADGE RENDERING ---
         let clusterPower = singleBadgeMap.get(unit.id);
-        if (clusterPower !== undefined) {
+        let isStalemated = unit.stalemate || stalematedUnits.has(unit.id);
+        let teamSuList = teamSuperunitsMap.get(unit.team) || [];
+        let parentSu = teamSuList.find(su => su.units.some(u => u.id === unit.id));
+        if (parentSu && parentSu.stalemate) {
+            isStalemated = true;
+        }
+
+        if (clusterPower !== undefined || isStalemated) {
             let badgeRadius = Math.max(5, targetPos.cellSize * 0.14);
             let badgeX = unit.animX + targetPos.cellSize + badgeRadius * 0.8;
             let badgeY = renderDrawY - badgeRadius * 0.8;
 
-            ctx.fillStyle = '#e74c3c';
+            ctx.fillStyle = isStalemated ? '#7f8c8d' : '#e74c3c';
             ctx.strokeStyle = '#ffffff';
             ctx.lineWidth = 1;
 
@@ -445,10 +406,16 @@ export function drawGameScene(ctx, canvas, units, selectedUnit, localTeam, legal
             ctx.stroke();
 
             ctx.fillStyle = '#ffffff';
-            ctx.font = `bold ${Math.max(8, Math.floor(badgeRadius * 1.1))}px "Times New Roman", serif`;
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
-            ctx.fillText(clusterPower, badgeX, badgeY);
+
+            if (isStalemated) {
+                ctx.font = `${Math.max(8, Math.floor(badgeRadius * 1.2))}px sans-serif`;
+                ctx.fillText('🔒', badgeX, badgeY);
+            } else if (clusterPower !== undefined) {
+                ctx.font = `bold ${Math.max(8, Math.floor(badgeRadius * 1.1))}px "Times New Roman", serif`;
+                ctx.fillText(clusterPower, badgeX, badgeY);
+            }
         }
 
         ctx.restore();
