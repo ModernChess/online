@@ -1,6 +1,7 @@
-// unit-movement.js - Handles 8-Directional Raycasting Queen-Style Movement Calculation & Range Overlay UI Control
+// unit-movement.js - Handles 8-Directional Raycasting Queen-Style Movement Calculation, Range Overlay UI Control, and Stalemate Immobility Validation
 import { cols, rows, getTerrain, isWaterTerrain } from './game-config.js';
 import { getRenderCoordinates } from './game-renderer.js';
+import { stalematedUnits } from './combat-mechanics.js';
 
 const activeRangeUnitIds = new Set();
 
@@ -93,6 +94,12 @@ export function updateUnitRangeOverlayButton(canvas, selectedUnit, localTeam, lo
 
 export function getLegalMoves(unit, units) {
     if (!unit) return [];
+    
+    // Immobility validation check: Block all movement attempts for any stalemated unit or locked group member
+    if (unit.stalemate || stalematedUnits.has(unit.id)) {
+        return [];
+    }
+
     let moves = [];
     let maxRange = unit.range || 3;
     let cx = unit.gridX;
