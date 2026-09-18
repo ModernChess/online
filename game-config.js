@@ -1,4 +1,4 @@
-// game-config.js - Configuration, Map Data Arrays, Terrain Parsers, and Local Asset Loaders (24x34 Grid System)[span_0](start_span)[span_0](end_span)
+// game-config.js - Configuration, Map Data Arrays, Terrain Parsers, and Local Asset Loaders (24x34 Grid System)
 
 export const cols = 24;
 export const rows = 34;
@@ -32,22 +32,22 @@ function loadOnlineAsset(url, imgObj, setLoadedFlag) {
 
 const repoBaseUrl = 'https://raw.githubusercontent.com/ModernChess/assets-images/main/';
 
-loadOnlineAsset(`${repoBaseUrl}blue_antiair.jpg`, blueAntiairImg, (val) => { blueAntiairLoaded = val; });
-loadOnlineAsset(`${repoBaseUrl}red_antiair.jpg`, redAntiairImg, (val) => { redAntiairLoaded = val; });
-loadOnlineAsset(`${repoBaseUrl}blue_artillery.jpg`, blueArtilleryImg, (val) => { blueArtilleryLoaded = val; });
-loadOnlineAsset(`${repoBaseUrl}red_artillery.jpg`, redArtilleryImg, (val) => { redArtilleryLoaded = val; });
-loadOnlineAsset(`${repoBaseUrl}blue_engineer.jpg`, blueEngineerImg, (val) => { blueEngineerLoaded = val; });
-loadOnlineAsset(`${repoBaseUrl}red_engineer.jpg`, redEngineerImg, (val) => { redEngineerLoaded = val; });
-loadOnlineAsset(`${repoBaseUrl}blue_infantry.jpg`, blueInfantryImg, (val) => { blueInfantryLoaded = val; });
-loadOnlineAsset(`${repoBaseUrl}red_infantry.jpg`, redInfantryImg, (val) => { redInfantryLoaded = val; });
-loadOnlineAsset(`${repoBaseUrl}blue_mine.jpg`, blueMineImg, (val) => { blueMineLoaded = val; });
-loadOnlineAsset(`${repoBaseUrl}red_mine.jpg`, redMineImg, (val) => { redMineLoaded = val; });
-loadOnlineAsset(`${repoBaseUrl}blue_plane.jpg`, bluePlaneImg, (val) => { bluePlaneLoaded = val; });
-loadOnlineAsset(`${repoBaseUrl}red_plane.jpg`, redPlaneImg, (val) => { redPlaneLoaded = val; });
-loadOnlineAsset(`${repoBaseUrl}blue_ship.jpg`, blueShipImg, (val) => { blueShipLoaded = val; });
-loadOnlineAsset(`${repoBaseUrl}red_ship.jpg`, redShipImg, (val) => { redShipLoaded = val; });
-loadOnlineAsset(`${repoBaseUrl}blue_tank.jpg`, blueTankImg, (val) => { blueTankLoaded = val; });
-loadOnlineAsset(`${repoBaseUrl}red_tank.jpg`, redTankImg, (val) => { redTankLoaded = val; });
+loadOnlineAsset(`${repoBaseUrl}blueantiair.png`, blueAntiairImg, (val) => { blueAntiairLoaded = val; });
+loadOnlineAsset(`${repoBaseUrl}redantiair.png`, redAntiairImg, (val) => { redAntiairLoaded = val; });
+loadOnlineAsset(`${repoBaseUrl}blueartillery.png`, blueArtilleryImg, (val) => { blueArtilleryLoaded = val; });
+loadOnlineAsset(`${repoBaseUrl}redartillery.png`, redArtilleryImg, (val) => { redArtilleryLoaded = val; });
+loadOnlineAsset(`${repoBaseUrl}blueengineer.png`, blueEngineerImg, (val) => { blueEngineerLoaded = val; });
+loadOnlineAsset(`${repoBaseUrl}redengineer.png`, redEngineerImg, (val) => { redEngineerLoaded = val; });
+loadOnlineAsset(`${repoBaseUrl}blueinfantry.png`, blueInfantryImg, (val) => { blueInfantryLoaded = val; });
+loadOnlineAsset(`${repoBaseUrl}redinfantry.png`, redInfantryImg, (val) => { redInfantryLoaded = val; });
+loadOnlineAsset(`${repoBaseUrl}bluemine.png`, blueMineImg, (val) => { blueMineLoaded = val; });
+loadOnlineAsset(`${repoBaseUrl}redmine.png`, redMineImg, (val) => { redMineLoaded = val; });
+loadOnlineAsset(`${repoBaseUrl}blueplane.png`, bluePlaneImg, (val) => { bluePlaneLoaded = val; });
+loadOnlineAsset(`${repoBaseUrl}redplane.png`, redPlaneImg, (val) => { redPlaneLoaded = val; });
+loadOnlineAsset(`${repoBaseUrl}blueship.png`, blueShipImg, (val) => { blueShipLoaded = val; });
+loadOnlineAsset(`${repoBaseUrl}redship.png`, redShipImg, (val) => { redShipLoaded = val; });
+loadOnlineAsset(`${repoBaseUrl}bluetank.png`, blueTankImg, (val) => { blueTankLoaded = val; });
+loadOnlineAsset(`${repoBaseUrl}redtank.png`, redTankImg, (val) => { redTankLoaded = val; });
 loadOnlineAsset(`${repoBaseUrl}map_3.png`, mapImg, (val) => { mapLoaded = val; });
 
 export function colLetterToIndex(colStr) {
