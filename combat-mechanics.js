@@ -1,8 +1,9 @@
-// combat-mechanics.js - Handles combat power definitions, superunit clustering, and target tracking
+// combat-mechanics.js - Handles combat power definitions, superunit clustering with enemy bridging, target tracking, instant stalemates, and reinforcements
 import { cols, rows, isWaterTerrain } from './game-config.js';
 import { getUnitRange } from './unit-movement.js';
 
 export let unitsToDestroy = [];
+export let stalematedUnits = new Set(); // Registry tracking unit IDs currently in a stalemated/locked state
 
 export function getUnitPower(unit) {
     if (!unit) return 0;
@@ -86,7 +87,7 @@ export function getUnitMacroRangeTiles(unit) {
     return tiles;
 }
 
-export function getSuperunitsForTeam(teamName, allUnits) {
+function getSuperunitsForTeamBase(teamName, allUnits) {
     let teamUnits = allUnits.filter(u => u.team === teamName);
     let combatUnits = teamUnits.filter(u => getUnitPower(u) > 0);
     let superunits = [];
@@ -104,7 +105,17 @@ export function getSuperunitsForTeam(teamName, allUnits) {
 
             combatUnits.forEach(other => {
                 if (!visited.has(other)) {
-                    if (areUnitsAdjacent(curr, other)) {
+                    let touching = areUnitsAdjacent(curr, other);
+                    let sharingEnemyBridge = false;
+                    
+                    if (!touching) {
+                        // Enemy bridge check: if two friendly units touch the same opposing enemy unit, they connect[span_1](start_span)[span_1](end_span)
+                        sharingEnemyBridge = allUnits.some(enemy => 
+                            enemy.team !== teamName && areUnitsAdjacent(curr, enemy) && areUnitsAdjacent(other, enemy)
+                        );
+                    }
+
+                    if (touching || sharingEnemyBridge) {
                         visited.add(other);
                         queue.push(other);
                     }
@@ -113,24 +124,54 @@ export function getSuperunitsForTeam(teamName, allUnits) {
         }
 
         let totalPower = cluster.reduce((sum, u) => sum + getUnitPower(u), 0);
+        let isStalemate = cluster.some(u => u.stalemate || stalematedUnits.has(u.id));
         superunits.push({
             units: cluster,
             power: totalPower,
-            team: teamName
+            team: teamName,
+            stalemate: isStalemate
         });
     });
 
     return superunits;
 }
 
+export function updateStalemates(unitsList) {
+    if (!unitsList) return;
+    
+    unitsList.forEach(u => {
+        u.stalemate = false;
+    });
+    stalematedUnits.clear();
+
+    let blueSuperunits = getSuperunitsForTeamBase('blue', unitsList);
+    let redSuperunits = getSuperunitsForTeamBase('red', unitsList);
+
+    blueSuperunits.forEach(suBlue => {
+        redSuperunits.forEach(suRed => {
+            let isAdjacent = suBlue.units.some(uB => suRed.units.some(uR => areUnitsAdjacent(uB, uR)));
+            if (isAdjacent && suBlue.power === suRed.power) {
+                suBlue.units.forEach(u => { u.stalemate = true; stalematedUnits.add(u.id); });
+                suRed.units.forEach(u => { u.stalemate = true; stalematedUnits.add(u.id); });
+            }
+        });
+    });
+}
+
+export function getSuperunitsForTeam(teamName, allUnits) {
+    updateStalemates(allUnits);
+    return getSuperunitsForTeamBase(teamName, allUnits);
+}
+
 export function getMultiUnitPowerMap(unitsList) {
     let powerMap = new Map();
     if (!unitsList) return powerMap;
 
+    updateStalemates(unitsList);
     ['blue', 'red'].forEach(teamName => {
-        let suList = getSuperunitsForTeam(teamName, unitsList);
+        let suList = getSuperunitsForTeamBase(teamName, unitsList);
         suList.forEach(su => {
-            if (su.units && su.units.length > 1) {
+            if (su.units && su.units.length > 0) {
                 su.units.forEach(u => {
                     powerMap.set(u.id, su.power);
                 });
@@ -144,6 +185,8 @@ export function getMultiUnitPowerMap(unitsList) {
 export function resolveCombat(unitsList, logCallback) {
     unitsToDestroy = [];
     let destroyedIds = new Set();
+
+    updateStalemates(unitsList);
 
     // 1. General Macro-Square Range Detection Logging
     unitsList.forEach(unit => {
@@ -169,7 +212,7 @@ export function resolveCombat(unitsList, logCallback) {
         rangeTiles.forEach(tile => {
             let enemy = unitsList.find(u => u.gridX === tile.c && u.gridY === tile.r && u.team !== ship.team);
             if (enemy && shipVulnerableUnits.has(enemy.name)) {
-                if (!destroyedIds.has(enemy.id)) {
+                if (!destroyedIds.has(enemy.id) && !enemy.stalemate && !stalematedUnits.has(enemy.id)) {
                     destroyedIds.add(enemy.id);
                     unitsToDestroy.push({ 
                         unit: enemy, destroyedBy: 'Ship',
@@ -190,7 +233,7 @@ export function resolveCombat(unitsList, logCallback) {
         rangeTiles.forEach(tile => {
             let enemy = unitsList.find(u => u.gridX === tile.c && u.gridY === tile.r && u.team !== artillery.team);
             if (enemy && artilleryVulnerableUnits.has(enemy.name)) {
-                if (!destroyedIds.has(enemy.id)) {
+                if (!destroyedIds.has(enemy.id) && !enemy.stalemate && !stalematedUnits.has(enemy.id)) {
                     let success = Math.random() < 0.5;
                     if (success) {
                         destroyedIds.add(enemy.id);
@@ -218,7 +261,7 @@ export function resolveCombat(unitsList, logCallback) {
         rangeTiles.forEach(tile => {
             let enemy = unitsList.find(u => u.gridX === tile.c && u.gridY === tile.r && u.team !== antiair.team);
             if (enemy && antiairVulnerableUnits.has(enemy.name)) {
-                if (!destroyedIds.has(enemy.id)) {
+                if (!destroyedIds.has(enemy.id) && !enemy.stalemate && !stalematedUnits.has(enemy.id)) {
                     destroyedIds.add(enemy.id);
                     unitsToDestroy.push({ 
                         unit: enemy, destroyedBy: 'Anti-Air',
@@ -242,7 +285,7 @@ export function resolveCombat(unitsList, logCallback) {
         rangeTiles.forEach(tile => {
             let enemy = unitsList.find(u => u.gridX === tile.c && u.gridY === tile.r && u.team !== mine.team);
             if (enemy && activeVulnerableSet.has(enemy.name)) {
-                if (!destroyedIds.has(enemy.id)) {
+                if (!destroyedIds.has(enemy.id) && !enemy.stalemate && !stalematedUnits.has(enemy.id)) {
                     destroyedIds.add(enemy.id);
                     unitsToDestroy.push({ 
                         unit: enemy, destroyedBy: 'Mine',
@@ -263,7 +306,7 @@ export function resolveCombat(unitsList, logCallback) {
         enemyUnits.forEach(enemy => {
             if (planeVulnerableUnits.has(enemy.name)) {
                 if (areUnitsAdjacent(plane, enemy)) {
-                    if (!destroyedIds.has(enemy.id)) {
+                    if (!destroyedIds.has(enemy.id) && !enemy.stalemate && !stalematedUnits.has(enemy.id)) {
                         destroyedIds.add(enemy.id);
                         unitsToDestroy.push({ 
                             unit: enemy, destroyedBy: 'Plane',
@@ -278,14 +321,94 @@ export function resolveCombat(unitsList, logCallback) {
         });
     });
 
-    // 7. Infantry & Tank Adjacent Combat Resolution (Special request: destroy Engineer, Artillery, Anti-Air)
-    let infantryAndTanks = unitsList.filter(u => u.name === 'Infantry' || u.name === 'Tank');
+    // 7. Superunit Equal-Power Locks, Stalemates, and Reinforcement/Rescue Breaking
+    let blueSuperunits = getSuperunitsForTeamBase('blue', unitsList);
+    let redSuperunits = getSuperunitsForTeamBase('red', unitsList);
+
+    blueSuperunits.forEach(suBlue => {
+        redSuperunits.forEach(suRed => {
+            let isAdjacent = suBlue.units.some(uB => suRed.units.some(uR => areUnitsAdjacent(uB, uR)));
+            if (isAdjacent) {
+                let blueReinforced = suBlue.units.some(u => !stalematedUnits.has(u.id) && !u.stalemate);
+                let redReinforced = suRed.units.some(u => !stalematedUnits.has(u.id) && !u.stalemate);
+
+                if (suBlue.stalemate || suRed.stalemate) {
+                    if (blueReinforced && !redReinforced && suBlue.power !== suRed.power) {
+                        suRed.units.forEach(u => {
+                            if (!destroyedIds.has(u.id)) {
+                                destroyedIds.add(u.id);
+                                unitsToDestroy.push({
+                                    unit: u, destroyedBy: 'Reinforced Superunit',
+                                    reason: `Blue reinforcement broke stalemate and destroyed Red unit ${u.name} due to power advantage (${suBlue.power} vs ${suRed.power})`
+                                });
+                            }
+                        });
+                        suBlue.units.forEach(u => { u.stalemate = false; stalematedUnits.delete(u.id); });
+                        suRed.units.forEach(u => { u.stalemate = false; stalematedUnits.delete(u.id); });
+                        if (logCallback) logCallback(`Reinforcement! Blue forces broke the stalemate with superior power (${suBlue.power} vs ${suRed.power}) and destroyed Red forces!`);
+                        return;
+                    } else if (redReinforced && !blueReinforced && suRed.power !== suBlue.power) {
+                        suBlue.units.forEach(u => {
+                            if (!destroyedIds.has(u.id)) {
+                                destroyedIds.add(u.id);
+                                unitsToDestroy.push({
+                                    unit: u, destroyedBy: 'Reinforced Superunit',
+                                    reason: `Red reinforcement broke stalemate and destroyed Blue unit ${u.name} due to power advantage (${suRed.power} vs ${suBlue.power})`
+                                });
+                            }
+                        });
+                        suBlue.units.forEach(u => { u.stalemate = false; stalematedUnits.delete(u.id); });
+                        suRed.units.forEach(u => { u.stalemate = false; stalematedUnits.delete(u.id); });
+                        if (logCallback) logCallback(`Reinforcement! Red forces broke the stalemate with superior power (${suRed.power} vs ${suBlue.power}) and destroyed Blue forces!`);
+                        return;
+                    }
+                }
+
+                if (suBlue.power === suRed.power) {
+                    suBlue.units.forEach(u => { u.stalemate = true; stalematedUnits.add(u.id); });
+                    suRed.units.forEach(u => { u.stalemate = true; stalematedUnits.add(u.id); });
+                    if (logCallback) {
+                        logCallback(`Stalemate! Equal power detected between Blue (${suBlue.power}) and Red (${suRed.power}) superunits. Forces locked in place!`);
+                    }
+                } else if (suBlue.power > suRed.power) {
+                    suRed.units.forEach(u => {
+                        if (!destroyedIds.has(u.id) && !u.stalemate && !stalematedUnits.has(u.id)) {
+                            destroyedIds.add(u.id);
+                            unitsToDestroy.push({
+                                unit: u, destroyedBy: 'Superunit Power',
+                                reason: `Blue superunit power (${suBlue.power}) overpowered Red superunit power (${suRed.power})`
+                            });
+                            if (logCallback) {
+                                logCallback(`Combat! Blue superunit (power ${suBlue.power}) destroyed Red ${u.name} (cluster power ${suRed.power})!`);
+                            }
+                        }
+                    });
+                } else {
+                    suBlue.units.forEach(u => {
+                        if (!destroyedIds.has(u.id) && !u.stalemate && !stalematedUnits.has(u.id)) {
+                            destroyedIds.add(u.id);
+                            unitsToDestroy.push({
+                                unit: u, destroyedBy: 'Superunit Power',
+                                reason: `Red superunit power (${suRed.power}) overpowered Blue superunit power (${suBlue.power})`
+                            });
+                            if (logCallback) {
+                                logCallback(`Combat! Red superunit (power ${suRed.power}) destroyed Blue ${u.name} (cluster power ${suBlue.power})!`);
+                            }
+                        }
+                    });
+                }
+            }
+        });
+    });
+
+    // 8. Infantry & Tank Adjacent Combat Resolution
+    let infantryAndTanks = unitsList.filter(u => (u.name === 'Infantry' || u.name === 'Tank') && !u.stalemate && !stalematedUnits.has(u.id));
     infantryAndTanks.forEach(attacker => {
         let enemyUnits = unitsList.filter(u => u.team !== attacker.team);
         enemyUnits.forEach(enemy => {
             if (infantryTankVulnerableUnits.has(enemy.name)) {
                 if (areUnitsAdjacent(attacker, enemy)) {
-                    if (!destroyedIds.has(enemy.id)) {
+                    if (!destroyedIds.has(enemy.id) && !enemy.stalemate && !stalematedUnits.has(enemy.id)) {
                         destroyedIds.add(enemy.id);
                         unitsToDestroy.push({ 
                             unit: enemy, destroyedBy: attacker.name,
@@ -309,8 +432,11 @@ export function processDestructions(unitsList) {
 
     for (let i = unitsList.length - 1; i >= 0; i--) {
         if (targetIds.has(unitsList[i].id)) {
+            let u = unitsList[i];
+            stalematedUnits.delete(u.id);
             unitsList.splice(i, 1);
         }
     }
+    updateStalemates(unitsList);
     return true;
 }
