@@ -328,7 +328,13 @@ function initCanvasGame() {
                     let payload = { 
                         units: units,
                         tileCaptures: sanitizedTileCaptures,
-                        coins: teamCoins
+                        coins: teamCoins,
+                        lastAction: {
+                            type: 'MOVE',
+                            unitName: selectedUnit.name,
+                            team: selectedUnit.team,
+                            timestamp: Date.now()
+                        }
                     };
                     if (turnChanged) {
                         payload.turn = nextTurn;
