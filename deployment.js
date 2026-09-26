@@ -1,16 +1,12 @@
 // deployment.js - Handles Unit Purchasing, Affordability Checks, and Grid Placement Logic
 import { db, ref, update } from './network.js';
 import { 
-    colLetterToIndex, 
-    goldCoreList, 
     goldList, 
-    artList, 
-    tList, 
-    rbList, 
-    bbList, 
-    navList, 
     bbcList, 
-    rbcList 
+    rbcList, 
+    redBasesList, 
+    blueBasesList, 
+    teamNavySpawns 
 } from './game-config.js';
 import { tileCaptures } from './team-logic.js';
 import { getUnitAtCoordinate } from './game-renderer.js';
@@ -47,22 +43,59 @@ export function getIsShopOpen() {
 function toCoordSet(list) {
     const set = new Set();
     list.forEach(item => {
-        let m = item.match(/^([A-Z]+)(\d+)$/);
-        if (m) set.add(`${colLetterToIndex(m[1])},${parseInt(m[2], 10) - 18}`);
+        if (typeof item === 'string' && item.includes(',')) {
+            set.add(item.trim());
+        }
     });
     return set;
 }
 
+const navyCoordList = teamNavySpawns.map(n => n.coordinates);
+const baseAndCoreList = [...redBasesList, ...blueBasesList, ...bbcList, ...rbcList];
+
 const deploymentRules = {
-    infantry: new Set([...toCoordSet(goldCoreList), ...toCoordSet(goldList), ...toCoordSet(rbList), ...toCoordSet(bbList), ...toCoordSet(bbcList), ...toCoordSet(rbcList)]),
-    artillery: toCoordSet(artList),
-    antiair: toCoordSet(artList),
-    engineer: toCoordSet(artList),
-    mine: toCoordSet(artList),
-    tank: toCoordSet(tList),
-    plane: toCoordSet(tList),
-    ship: toCoordSet(navList)
+    infantry: new Set([...goldList, ...baseAndCoreList]),
+    tank: new Set(baseAndCoreList),
+    ship: toCoordSet(navyCoordList),
+    artillery: new Set(baseAndCoreList),
+    antiair: new Set(baseAndCoreList),
+    engineer: new Set(baseAndCoreList),
+    mine: new Set(baseAndCoreList),
+    plane: new Set(baseAndCoreList)
 };
+
+// Validates whether a specific coordinate is legally owned/controlled by the target team for a given unit type
+export function isTileValidForTeam(coordKey, unitType, targetTeam) {
+    const typeLower = unitType.toLowerCase();
+    const isBlueBase = blueBasesList.includes(coordKey) || bbcList.includes(coordKey);
+    const isRedBase = redBasesList.includes(coordKey) || rbcList.includes(coordKey);
+    const tileInfo = tileCaptures[coordKey];
+
+    if (typeLower === 'ship') {
+        const navySpawn = teamNavySpawns.find(n => n.coordinates === coordKey);
+        return navySpawn && navySpawn.team === targetTeam;
+    }
+
+    if (typeLower === 'tank') {
+        if (targetTeam === 'blue') return isBlueBase;
+        if (targetTeam === 'red') return isRedBase;
+        return false;
+    }
+
+    if (typeLower === 'infantry') {
+        if (targetTeam === 'blue' && isBlueBase) return true;
+        if (targetTeam === 'red' && isRedBase) return true;
+        if (goldList.includes(coordKey)) {
+            return tileInfo && tileInfo.capturedBy === targetTeam;
+        }
+        return false;
+    }
+
+    // Default fallback rules for other support structures
+    if (targetTeam === 'blue') return isBlueBase;
+    if (targetTeam === 'red') return isRedBase;
+    return false;
+}
 
 export function getPendingUnitType() {
     return pendingUnitType;
@@ -116,7 +149,6 @@ export function ensureBuyUnitsModal(logToConsole, getCurrentUnits, getPlayerTeam
             const activeTeam = (typeof getPlayerTeam === 'function') ? getPlayerTeam() : currentTeamRef;
             const currentCoins = teamCoinsRef[activeTeam] || 0;
 
-            // Affordability check: unit costs 1 coin
             if (currentCoins < 1) {
                 logToConsole(`Purchase Declined: Team ${activeTeam} has ${currentCoins} coins. Units cost 1 coin.`);
                 alert(`Insufficient funds! You need at least 1 coin to purchase a unit.`);
@@ -127,7 +159,6 @@ export function ensureBuyUnitsModal(logToConsole, getCurrentUnits, getPlayerTeam
             modal.style.display = 'none';
             isShopOpen = false;
             
-            // Unfreeze main buy button cleanly
             const buyBtn = document.getElementById('buyUnitsBtn');
             if (buyBtn) {
                 buyBtn.disabled = false;
@@ -136,7 +167,6 @@ export function ensureBuyUnitsModal(logToConsole, getCurrentUnits, getPlayerTeam
 
             logToConsole(`Purchased ${unitType} for 1 coin. Select a valid captured deployment tile.`);
             
-            // Resolve units from callback, synced ref, or window globals
             const resolvedUnits = (typeof getCurrentUnits === 'function' && getCurrentUnits().length > 0) 
                 ? getCurrentUnits() 
                 : (latestUnitsRef.length > 0 ? latestUnitsRef : (window.units || window.gameUnits || []));
@@ -160,15 +190,17 @@ export function spawnUnitDeployerPopup(unitType, units, logToConsole, playerTeam
 
     allowedTiles.forEach(coordKey => {
         let [c, r] = coordKey.split(',').map(Number);
-        let tileInfo = tileCaptures[coordKey];
-        // Fix: Strictly restrict deployment tiles to those captured by the player's team
-        if (tileInfo && tileInfo.capturedBy === targetTeam) {
+        
+        // Strictly validate team ownership for each candidate tile
+        if (isTileValidForTeam(coordKey, unitType, targetTeam)) {
             let occupyingUnit = getUnitAtCoordinate(c, r);
-            
+            let tileInfo = tileCaptures[coordKey];
+            let displayTypeName = tileInfo ? tileInfo.type : (navyCoordList.includes(coordKey) ? 'nav' : 'base');
+
             validRowsList.push({ 
                 col: c, 
                 row: r, 
-                typeName: tileInfo.type, 
+                typeName: displayTypeName, 
                 occupantName: occupyingUnit ? (occupyingUnit.name || occupyingUnit.type || 'Unit') : null 
             });
         }
@@ -181,7 +213,7 @@ export function spawnUnitDeployerPopup(unitType, units, logToConsole, playerTeam
                 : '';
             return `<div class="deployer-tile-row"><span>${t.typeName.toUpperCase()}</span> <b>[Col: ${t.col}, Row: ${t.row}]</b>${occupantWarning}</div>`;
         }).join('')
-        : `<div class="deployer-tile-row"><span>No captured tiles available for your team!</span></div>`;
+        : `<div class="deployer-tile-row"><span>No controlled tiles available for your team!</span></div>`;
 
     popup.innerHTML = `
         <div class="unit-deployer-header">
@@ -238,9 +270,8 @@ export function handleUnitDeployment(clickedCol, clickedRow, playerTeam, units, 
         return false;
     }
 
-    const captureInfo = tileCaptures[key];
-    if (!captureInfo || captureInfo.capturedBy !== playerTeam) {
-        logToConsole(`Failed to deploy: Coordinates [${clickedCol}, ${clickedRow}] are uncaptured or not controlled by team ${playerTeam}.`);
+    if (!isTileValidForTeam(key, pendingUnitType, playerTeam)) {
+        logToConsole(`Failed to deploy: Coordinates [${clickedCol}, ${clickedRow}] do not belong to team ${playerTeam}'s controlled bases, captures, or spawns.`);
         return false;
     }
 
@@ -250,7 +281,6 @@ export function handleUnitDeployment(clickedCol, clickedRow, playerTeam, units, 
         return false;
     }
 
-    // Double check affordability before confirming deployment
     const coinsRefToUse = teamCoinsObj || teamCoinsRef;
     if ((coinsRefToUse[playerTeam] || 0) < 1) {
         logToConsole(`Deployment failed: Insufficient funds for team ${playerTeam}.`);
@@ -258,7 +288,6 @@ export function handleUnitDeployment(clickedCol, clickedRow, playerTeam, units, 
         return false;
     }
 
-    // Deduct 1 coin for the purchase
     coinsRefToUse[playerTeam] -= 1;
     if (typeof updateHudCallback === 'function') {
         updateHudCallback();
