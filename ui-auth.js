@@ -24,11 +24,17 @@ export function logToConsole(msg) {
 export function showScreen(screenId) {
     document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
     const target = document.getElementById(screenId);
-    if (target) target.classList.add('active');
-    logToConsole(`Switched active screen to: ${screenId}`);
+    if (target) {
+        target.classList.add('active');
+        logToConsole(`Switched active screen to: ${screenId}`);
+    } else {
+        console.error(`Target screen not found: ${screenId}`);
+    }
 }
 
 export function escapeHtml(str) {
+    // Safety check: ensure str is a valid string before calling replace
+    if (typeof str !== 'string') return '';
     return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
@@ -90,9 +96,12 @@ export function listenToGlobalChat() {
         const recent = messages.slice(-30);
 
         recent.forEach(msg => {
+            // Safety check: skip message nodes that don't have text or sender properties
+            if (!msg || typeof msg.text !== 'string') return;
+
             const div = document.createElement('div');
             div.className = 'global-chat-msg';
-            div.innerHTML = `<strong>${msg.sender}:</strong> ${escapeHtml(msg.text)}`;
+            div.innerHTML = `<strong>${msg.sender || 'Unknown'}:</strong> ${escapeHtml(msg.text)}`;
             container.appendChild(div);
         });
         container.scrollTop = container.scrollHeight;
