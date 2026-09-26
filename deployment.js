@@ -1,4 +1,4 @@
-// deployment.js - Handles Unit Purchasing, Affordability Checks, and Grid Placement Logic
+// deployment.js - Handles Unit Purchasing, Affordability Checks, and Grid Placement Logic for Infantry, Tank, and Ship
 import { db, ref, update } from './network.js';
 import { 
     goldList, 
@@ -56,15 +56,10 @@ const baseAndCoreList = [...redBasesList, ...blueBasesList, ...bbcList, ...rbcLi
 const deploymentRules = {
     infantry: new Set([...goldList, ...baseAndCoreList]),
     tank: new Set(baseAndCoreList),
-    ship: toCoordSet(navyCoordList),
-    artillery: new Set(baseAndCoreList),
-    antiair: new Set(baseAndCoreList),
-    engineer: new Set(baseAndCoreList),
-    mine: new Set(baseAndCoreList),
-    plane: new Set(baseAndCoreList)
+    ship: toCoordSet(navyCoordList)
 };
 
-// Validates whether a specific coordinate is legally owned/controlled by the target team for a given unit type
+// Validates whether a specific coordinate is legally owned/controlled by the target team for Infantry, Tank, or Ship
 export function isTileValidForTeam(coordKey, unitType, targetTeam) {
     const typeLower = unitType.toLowerCase();
     const isBlueBase = blueBasesList.includes(coordKey) || bbcList.includes(coordKey);
@@ -91,9 +86,6 @@ export function isTileValidForTeam(coordKey, unitType, targetTeam) {
         return false;
     }
 
-    // Default fallback rules for other support structures
-    if (targetTeam === 'blue') return isBlueBase;
-    if (targetTeam === 'red') return isRedBase;
     return false;
 }
 
@@ -121,11 +113,6 @@ export function ensureBuyUnitsModal(logToConsole, getCurrentUnits, getPlayerTeam
                 <div class="buy-unit-item"><span>Infantry (1 Coin)</span><button class="btn" data-type="infantry">Buy</button></div>
                 <div class="buy-unit-item"><span>Tank (1 Coin)</span><button class="btn" data-type="tank">Buy</button></div>
                 <div class="buy-unit-item"><span>Ship (1 Coin)</span><button class="btn" data-type="ship">Buy</button></div>
-                <div class="buy-unit-item"><span>Mine (1 Coin)</span><button class="btn" data-type="mine">Buy</button></div>
-                <div class="buy-unit-item"><span>Plane (1 Coin)</span><button class="btn" data-type="plane">Buy</button></div>
-                <div class="buy-unit-item"><span>Engineer (1 Coin)</span><button class="btn" data-type="engineer">Buy</button></div>
-                <div class="buy-unit-item"><span>Anti air (1 Coin)</span><button class="btn" data-type="antiair">Buy</button></div>
-                <div class="buy-unit-item"><span>Artillery (1 Coin)</span><button class="btn" data-type="artillery">Buy</button></div>
             </div>
         </div>
     `;
@@ -191,7 +178,6 @@ export function spawnUnitDeployerPopup(unitType, units, logToConsole, playerTeam
     allowedTiles.forEach(coordKey => {
         let [c, r] = coordKey.split(',').map(Number);
         
-        // Strictly validate team ownership for each candidate tile
         if (isTileValidForTeam(coordKey, unitType, targetTeam)) {
             let occupyingUnit = getUnitAtCoordinate(c, r);
             let tileInfo = tileCaptures[coordKey];
@@ -298,20 +284,14 @@ export function handleUnitDeployment(clickedCol, clickedRow, playerTeam, units, 
     const typeLower = pendingUnitType.toLowerCase();
 
     let unitTypeVal = 'land';
-    let unitRange = 3;
+    let unitRange = 2;
 
     if (typeLower === 'ship') {
         unitTypeVal = 'naval';
         unitRange = 2; 
-    } else if (typeLower === 'plane') {
-        unitTypeVal = 'air';
-        unitRange = 4;
     } else if (typeLower === 'tank') {
         unitTypeVal = 'land';
         unitRange = 3;
-    } else if (typeLower === 'artillery') {
-        unitTypeVal = 'land';
-        unitRange = 2;
     } else if (typeLower === 'infantry') {
         unitTypeVal = 'land';
         unitRange = 2;
