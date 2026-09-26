@@ -8,15 +8,17 @@ import { drawGameScene, getRenderCoordinates } from './game-renderer.js';
 import { getLegalMoves, getShowUnitRange, clearUnitRangeOverlayButton, updateUnitRangeOverlayButton } from './unit-movement.js';
 import { resolveCombat, processDestructions, unitsToDestroy } from './combat-mechanics.js';
 import { ensureBuyUnitsModal, handleUnitDeployment, getPendingUnitType, setPendingUnitType, cleanupUnitDeployerPopup, setTeamCoinsRef, setCurrentTeamRef, getTeamCoins } from './deployment.js';
-import { tileCaptures, initTileCaptures, parseCoord, rbList, bbList } from './team-logic.js';
+import { tileCaptures, initTileCaptures, parseCoord, rbList, bbList, getGoldCoreCluster } from './team-logic.js';
 import { createConsoleLogger, updateTurnButtonState, ensureGameActionButtons, updateGlobalCoinHUD } from './game-controls.js';
 import { triggerSelectSound, triggerMoveSound } from './sound.js';
+import { initializeTileCapturesState } from './renderer-helpers.js';
 
 let currentMatchId = null;
 let playerTeam = null;
 let localTeam = 'blue';
 let currentUser = null;
 let currentTurn = 'blue';
+let lastSeenTurn = null;
 let selectedUnit = null;
 let legalMoves = [];
 let selectionAnimStartTime = null;
@@ -24,9 +26,67 @@ let animationFrameId = null;
 let units = [];
 let movedUnitsThisTurn = new Set();
 let teamCoins = { blue: 0, red: 0 };
+let hasInitializedState = false; // Track initial sync seeding guard
+let isGameOver = false;
 
 const logToConsole = createConsoleLogger();
 initTileCaptures();
+
+function checkVictoryConditions(currentUnits, matchId, logger) {
+    if (isGameOver) return;
+
+    // 1. Check if all units of a team are completely destroyed (infantry & tanks)
+    const blueUnits = currentUnits.filter(u => u.team === 'blue');
+    const redUnits = currentUnits.filter(u => u.team === 'red');
+
+    if (blueUnits.length === 0 && redUnits.length > 0) {
+        isGameOver = true;
+        logger(`VICTORY! All Blue units have been destroyed! Red team wins!`);
+        alert(`Game Over! Red team won because all Blue units were destroyed!`);
+        endGameSessionState(matchId, 'red');
+        return;
+    } else if (redUnits.length === 0 && blueUnits.length > 0) {
+        isGameOver = true;
+        logger(`VICTORY! All Red units have been destroyed! Blue team wins!`);
+        alert(`Game Over! Blue team won because all Red units were destroyed!`);
+        endGameSessionState(matchId, 'blue');
+        return;
+    }
+}
+
+function checkBaseCaptureVictory(unit, moveKey, matchId, logger) {
+    if (isGameOver) return false;
+    let unitNameLower = (unit.name || '').toLowerCase();
+    let isInfantryOrTank = unitNameLower.includes('infantry') || unitNameLower.includes('tank');
+    if (!isInfantryOrTank) return false;
+
+    const isRedBase = rbList.some(item => parseCoord(item) === moveKey);
+    const isBlueBase = bbList.some(item => parseCoord(item) === moveKey);
+
+    if (isRedBase && unit.team === 'blue') {
+        isGameOver = true;
+        logger(`VICTORY! Blue team captured the Red Base/Core! Blue wins!`);
+        alert(`Game Over! Blue team won by capturing the Red Base!`);
+        endGameSessionState(matchId, 'blue');
+        return true;
+    } else if (isBlueBase && unit.team === 'red') {
+        isGameOver = true;
+        logger(`VICTORY! Red team captured the Blue Base/Core! Red wins!`);
+        alert(`Game Over! Red team won by capturing the Blue Base!`);
+        endGameSessionState(matchId, 'red');
+        return true;
+    }
+    return false;
+}
+
+function endGameSessionState(matchId, winnerTeam) {
+    if (matchId) {
+        update(ref(db, `matches/${matchId}`), {
+            status: 'ended',
+            winner: winnerTeam
+        });
+    }
+}
 
 export function startGameSession(matchId, team, user, onLeaveCallback) {
     currentMatchId = matchId;
@@ -34,7 +94,10 @@ export function startGameSession(matchId, team, user, onLeaveCallback) {
     localTeam = team;
     currentUser = user;
     currentTurn = 'blue';
+    lastSeenTurn = null;
     teamCoins = { blue: 0, red: 0 };
+    hasInitializedState = false;
+    isGameOver = false;
     
     setTeamCoinsRef(teamCoins);
     setCurrentTeamRef(playerTeam);
@@ -58,6 +121,7 @@ export function startGameSession(matchId, team, user, onLeaveCallback) {
             u.animStartTime = 0;
             u.lastKnownGridX = u.gridX;
             u.lastKnownGridY = u.gridY;
+            u.hasMovedThisTurn = false;
         });
     }
 
@@ -85,11 +149,25 @@ export function startGameSession(matchId, team, user, onLeaveCallback) {
             if (animationFrameId) cancelAnimationFrame(animationFrameId);
         },
         (turn, remoteData) => {
-            if (currentTurn !== turn) {
+            const turnChanged = (turn !== currentTurn || turn !== lastSeenTurn);
+
+            if (turnChanged) {
+                logToConsole(`Turn changed to: ${turn}. Clearing moved units table and flags.`);
                 movedUnitsThisTurn.clear();
+                units.forEach(u => u.hasMovedThisTurn = false);
             }
+            
             currentTurn = turn;
+            lastSeenTurn = turn;
+
             if (remoteData) {
+                if (remoteData.status === 'ended' && !isGameOver) {
+                    isGameOver = true;
+                    if (remoteData.winner) {
+                        alert(`Game Over! Team ${remoteData.winner.toUpperCase()} won the match!`);
+                        logToConsole(`Match ended remotely. Winner: ${remoteData.winner.toUpperCase()}`);
+                    }
+                }
                 if (remoteData.coins) {
                     teamCoins.blue = remoteData.coins.blue || 0;
                     teamCoins.red = remoteData.coins.red || 0;
@@ -109,6 +187,14 @@ export function startGameSession(matchId, team, user, onLeaveCallback) {
                     });
                 }
             }
+
+            // Seed the baseline exactly once upon receiving the first valid server payload on load/rejoin
+            if (!hasInitializedState) {
+                initializeTileCapturesState(tileCaptures);
+                hasInitializedState = true;
+            }
+
+            checkVictoryConditions(units, currentMatchId, logToConsole);
             updateTurnButtonState(currentTurn, playerTeam);
         }
     );
@@ -169,6 +255,7 @@ function initCanvasGame() {
     renderGameLoop();
 
     canvas.onclick = (e) => {
+        if (isGameOver) return;
         if (getCameraState().activePointers.size > 0) return;
 
         const world = screenToWorldCoordinates(e.clientX, e.clientY, canvas);
@@ -205,7 +292,7 @@ function initCanvasGame() {
                 if (currentTurn !== playerTeam) {
                     legalMoves = [];
                     logToConsole(`Inspecting own unit out-of-turn: ${selectedUnit.name} (${selectedUnit.team}) at [${clickedCol}, ${clickedRow}]`);
-                } else if (movedUnitsThisTurn.has(selectedUnit.id)) {
+                } else if (movedUnitsThisTurn.has(selectedUnit.id) || clickedUnit.hasMovedThisTurn) {
                     legalMoves = [];
                     logToConsole(`Unit ${selectedUnit.name} has already moved this turn and cannot move again.`);
                 } else {
@@ -231,7 +318,7 @@ function initCanvasGame() {
                 return;
             }
 
-            if (movedUnitsThisTurn.has(selectedUnit.id)) {
+            if (movedUnitsThisTurn.has(selectedUnit.id) || selectedUnit.hasMovedThisTurn) {
                 logToConsole(`Movement Blocked: ${selectedUnit.name} already moved this turn and is logged in the moved table.`);
                 selectedUnit = null;
                 legalMoves = [];
@@ -252,31 +339,43 @@ function initCanvasGame() {
                 selectedUnit.gridY = clickedRow;
                 selectedUnit.lastKnownGridX = clickedCol;
                 selectedUnit.lastKnownGridY = clickedRow;
+                
+                selectedUnit.hasMovedThisTurn = true;
 
                 let moveKey = `${clickedCol},${clickedRow}`;
                 let unitNameLower = (selectedUnit.name || '').toLowerCase();
                 let isInfantryOrTank = unitNameLower.includes('infantry') || unitNameLower.includes('tank');
 
                 if (isInfantryOrTank) {
-                    const isRedBase = rbList.some(item => parseCoord(item) === moveKey);
-                    const isBlueBase = bbList.some(item => parseCoord(item) === moveKey);
-
-                    if (isRedBase && selectedUnit.team === 'blue') {
-                        logToConsole(`VICTORY! Blue team captured the Red Base! Blue wins!`);
-                        alert(`Game Over! Blue team won by capturing the Red Base!`);
-                    } else if (isBlueBase && selectedUnit.team === 'red') {
-                        logToConsole(`VICTORY! Red team captured the Blue Base! Red wins!`);
-                        alert(`Game Over! Red team won by capturing the Blue Base!`);
+                    if (checkBaseCaptureVictory(selectedUnit, moveKey, currentMatchId, logToConsole)) {
+                        return;
                     }
 
                     if (tileCaptures[moveKey]) {
                         let tileInfo = tileCaptures[moveKey];
-                        if (tileInfo.capturedBy !== selectedUnit.team) {
+                        let cluster = getGoldCoreCluster(moveKey);
+
+                        if (cluster) {
+                            let gcKey = parseCoord(cluster.gc);
+                            let gcTile = tileCaptures[gcKey];
+                            if (gcTile && gcTile.capturedBy !== selectedUnit.team) {
+                                gcTile.capturedBy = selectedUnit.team;
+                                cluster.linked.forEach(l => {
+                                    let lKey = parseCoord(l);
+                                    if (tileCaptures[lKey]) {
+                                        tileCaptures[lKey].capturedBy = selectedUnit.team;
+                                    }
+                                });
+
+                                teamCoins[selectedUnit.team] = (teamCoins[selectedUnit.team] || 0) + 2;
+                                logToConsole(`${selectedUnit.team.toUpperCase()} team captured Gold Core and earned 2 coins! Total: ${teamCoins[selectedUnit.team]}`);
+                                updateGlobalCoinHUD(teamCoins);
+                            }
+                        } else if (tileInfo.capturedBy !== selectedUnit.team) {
                             tileInfo.capturedBy = selectedUnit.team;
                             let tileType = (tileInfo.type || '').toLowerCase();
                             let earnedCoins = 0;
-                            if (tileType === 'gold core') earnedCoins = 2;
-                            else if (['gold', 'artillery', 'tank', 'port'].includes(tileType)) earnedCoins = 0.5;
+                            if (['gold', 'artillery', 'tank', 'port'].includes(tileType)) earnedCoins = 0.5;
 
                             if (earnedCoins > 0) {
                                 teamCoins[selectedUnit.team] = (teamCoins[selectedUnit.team] || 0) + earnedCoins;
@@ -301,15 +400,20 @@ function initCanvasGame() {
                     logToConsole(`Processing ${unitsToDestroy.length} pending destruction(s) from combat table.`);
                     processDestructions(units);
                 }
+
+                checkVictoryConditions(units, currentMatchId, logToConsole);
+                if (isGameOver) return;
                 
                 let nextTurn = currentTurn;
                 let turnChanged = false;
 
-                if (movedUnitsThisTurn.size >= 2) {
+                if (movedUnitsThisTurn.size >= 1) {
                     logToConsole(`Moved table filled (${movedUnitsThisTurn.size} entries). Automatically clearing table and changing turn.`);
                     movedUnitsThisTurn.clear();
+                    units.forEach(u => u.hasMovedThisTurn = false);
                     nextTurn = playerTeam === 'blue' ? 'red' : 'blue';
                     currentTurn = nextTurn;
+                    lastSeenTurn = nextTurn;
                     turnChanged = true;
                     updateTurnButtonState(currentTurn, playerTeam);
                 } else {
