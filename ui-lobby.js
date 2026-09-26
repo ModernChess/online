@@ -1,4 +1,4 @@
-// ui-lobby.js - Handles Lobby, Matchmaking, and Server Management via Shared Cache
+// ui-lobby.js - Handles Lobby, Matchmaking, and Server Management
 import { db, ref, set, get, update, remove, onValue, push, setupUserPresence, markUserOffline } from './network.js';
 import { startGameSession } from './game-engine.js';
 import { spawnTeamUnits } from './game-config.js';
@@ -8,11 +8,25 @@ import {
     logToConsole, showScreen, listenToActivePlayers, listenToGlobalChat, sendGlobalMessage 
 } from './ui-auth.js';
 
+const validAccounts = {
+    "player1": "123", "player2": "123", "player3": "123", "player4": "123",
+    "player5": "123", "player6": "123", "player7": "123", "player8": "123",
+    "player9": "123", "player10": "123"
+};
+
 export function initLobbyModule() {
     initEventListeners();
     checkCachedSession();
     listenToActivePlayers();
     listenToGlobalChat();
+
+    // Disable logout button if it exists in the DOM
+    const logoutBtn = document.getElementById('logoutBtn');
+    if (logoutBtn) {
+        logoutBtn.disabled = true;
+        logoutBtn.style.opacity = '0.5';
+        logoutBtn.style.cursor = 'not-allowed';
+    }
 
     const clearConsoleBtn = document.getElementById('clearConsole');
     if (clearConsoleBtn) {
@@ -32,6 +46,7 @@ export function initLobbyModule() {
             }
         }
 
+        // Automatically clean up waiting server if host closes/refreshes tab
         if (currentServerId && !currentMatchId) {
             try {
                 remove(ref(db, `servers/${currentServerId}`));
@@ -43,22 +58,17 @@ export function initLobbyModule() {
 }
 
 function checkCachedSession() {
-    // Read directly from the home website's shared cache key
-    const savedUser = localStorage.getItem('arena_chess_user');
-    
-    if (savedUser) {
+    const savedUser = localStorage.getItem('chess_current_user');
+    if (savedUser && validAccounts[savedUser]) {
         setCurrentUser(savedUser);
-        logToConsole(`Auto-logged in via home cache as: ${savedUser}`);
-        
-        // Triggers the independent game presence tracker in network.js (`game_presence`)
+        logToConsole(`Auto-logged in via cache as: ${savedUser}`);
         setupUserPresence(savedUser);
         
+        // Immediately set screen to lobby so it's ready when loader fades
         showScreen('lobby-screen');
         
-        const avatar = localStorage.getItem('arena_chess_avatar') || '😀';
         const welcomeUser = document.getElementById('welcomeUser');
-        if (welcomeUser) welcomeUser.innerHTML = `<span style="font-size: 1.1rem; margin-right: 4px;">${avatar}</span> Logged in as: <strong>${savedUser}</strong>`;
-        
+        if (welcomeUser) welcomeUser.innerText = `Logged in as: ${savedUser}`;
         loadServerList();
         checkForActiveMatchOnLogin();
     } else {
@@ -75,8 +85,7 @@ function initEventListeners() {
             const p = document.getElementById('passInput').value.trim();
             const err = document.getElementById('loginError');
 
-            // Quick fallback preset check if logging in directly on game page
-            if (!u || p !== '123') {
+            if (!validAccounts[u] || validAccounts[u] !== p) {
                 if (err) err.innerText = "Invalid username or password!";
                 logToConsole(`Login failed for username: ${u}`);
                 return;
@@ -84,7 +93,7 @@ function initEventListeners() {
             if (err) err.innerText = "";
             setCurrentUser(u);
 
-            localStorage.setItem('arena_chess_user', u);
+            localStorage.setItem('chess_current_user', u);
             setupUserPresence(u);
 
             showScreen('lobby-screen');
@@ -93,18 +102,6 @@ function initEventListeners() {
             loadServerList();
             checkForActiveMatchOnLogin();
             logToConsole(`User ${u} logged in successfully.`);
-        });
-    }
-
-    const logoutBtn = document.getElementById('logoutBtn');
-    if (logoutBtn) {
-        logoutBtn.addEventListener('click', () => {
-            markUserOffline(currentUser);
-            localStorage.removeItem('arena_chess_user');
-            localStorage.removeItem('arena_chess_avatar');
-            logToConsole(`User ${currentUser} logged out.`);
-            setCurrentUser(null);
-            showScreen('login-screen');
         });
     }
 
@@ -138,12 +135,6 @@ function initEventListeners() {
         surrenderBtn.addEventListener('click', () => {
             if (confirm("Are you sure you want to surrender and leave the match?")) {
                 setIsLeavingDeliberately(true);
-                if (currentMatchId) {
-                    update(ref(db, `matches/${currentMatchId}`), {
-                        status: 'ended',
-                        winner: playerTeam === 'blue' ? 'red' : 'blue'
-                    });
-                }
                 leaveMatchCompletely();
             }
         });
@@ -223,13 +214,6 @@ function showRejoinPopup(mId, match) {
     document.getElementById('rejectRejoinBtn').onclick = () => {
         modal.remove();
         update(ref(db, `matches/${mId}`), { status: 'ended', winner: isBlue ? 'red' : 'blue' });
-        
-        findServerIdForMatch(mId, (sId) => {
-            if (sId) {
-                remove(ref(db, `servers/${sId}`));
-            }
-        });
-
         loadServerList();
         logToConsole("Rejected and terminated active match.");
     };
@@ -239,14 +223,13 @@ function findServerIdForMatch(mId, callback) {
     const serversRef = ref(db, 'servers');
     get(serversRef).then((snapshot) => {
         const servers = snapshot.val() || {};
-        let foundSId = null;
         for (let sId in servers) {
             if (servers[sId].matchId === mId) {
-                foundSId = sId;
+                setCurrentServerId(sId);
                 break;
             }
         }
-        if (callback) callback(foundSId);
+        if (callback) callback();
     });
 }
 
@@ -298,15 +281,6 @@ function loadServerList() {
             let totalServersCount = 0;
             for (let sId in serversData) {
                 const server = serversData[sId];
-                
-                if (server.status === 'playing' && server.matchId) {
-                    const match = matchesData[server.matchId];
-                    if (!match || match.status === 'ended') {
-                        remove(ref(db, `servers/${sId}`));
-                        continue;
-                    }
-                }
-
                 totalServersCount++;
                 const item = document.createElement('div');
                 item.className = 'server-item';
