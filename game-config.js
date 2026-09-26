@@ -48,7 +48,7 @@ loadOnlineAsset(`${repoBaseUrl}blueship.png`, blueShipImg, (val) => { blueShipLo
 loadOnlineAsset(`${repoBaseUrl}redship.png`, redShipImg, (val) => { redShipLoaded = val; });
 loadOnlineAsset(`${repoBaseUrl}bluetank.png`, blueTankImg, (val) => { blueTankLoaded = val; });
 loadOnlineAsset(`${repoBaseUrl}redtank.png`, redTankImg, (val) => { redTankLoaded = val; });
-loadOnlineAsset(`${repoBaseUrl}map_7.png`, mapImg, (val) => { mapLoaded = val; });
+loadOnlineAsset(`${repoBaseUrl}map2.png`, mapImg, (val) => { mapLoaded = val; });
 
 // Legacy compatibility placeholder
 export function colLetterToIndex(colStr) {
