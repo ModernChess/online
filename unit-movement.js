@@ -95,6 +95,11 @@ export function updateUnitRangeOverlayButton(canvas, selectedUnit, localTeam, lo
 export function getLegalMoves(unit, units) {
     if (!unit) return [];
     
+    // FIX: Block all movement calculations if the unit has already moved this turn (synced from AFK/rejoin state)
+    if (unit.hasMovedThisTurn) {
+        return [];
+    }
+
     // Immobility validation check: Block all movement attempts for any stalemated unit or locked group member
     if (unit.stalemate || stalematedUnits.has(unit.id)) {
         return [];
