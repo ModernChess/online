@@ -37,6 +37,15 @@ export function initLobbyModule() {
                 console.error("Failed to update AFK status on unload:", err);
             }
         }
+
+        // Automatically clean up waiting server if host closes/refreshes tab
+        if (currentServerId && !currentMatchId) {
+            try {
+                remove(ref(db, `servers/${currentServerId}`));
+            } catch (err) {
+                console.error("Failed to remove waiting server on unload:", err);
+            }
+        }
     });
 }
 
@@ -46,7 +55,10 @@ function checkCachedSession() {
         setCurrentUser(savedUser);
         logToConsole(`Auto-logged in via cache as: ${savedUser}`);
         setupUserPresence(savedUser);
+        
+        // Immediately set screen to lobby so it's ready when loader fades
         showScreen('lobby-screen');
+        
         const welcomeUser = document.getElementById('welcomeUser');
         if (welcomeUser) welcomeUser.innerText = `Logged in as: ${savedUser}`;
         loadServerList();
@@ -126,6 +138,12 @@ function initEventListeners() {
         surrenderBtn.addEventListener('click', () => {
             if (confirm("Are you sure you want to surrender and leave the match?")) {
                 setIsLeavingDeliberately(true);
+                if (currentMatchId) {
+                    update(ref(db, `matches/${currentMatchId}`), {
+                        status: 'ended',
+                        winner: playerTeam === 'blue' ? 'red' : 'blue'
+                    });
+                }
                 leaveMatchCompletely();
             }
         });
@@ -176,7 +194,7 @@ function showRejoinPopup(mId, match) {
     modal.innerHTML = `
         <div style="background: #1e1e1e; padding: 25px; border-radius: 8px; text-align: center; max-width: 400px; width: 90%; border: 1px solid #333; color: #fff;">
             <h3 style="margin-top: 0; color: #f1c40f;">Active Match Found!</h3>
-            <p style="color: #ccc; font-size: 0.9rem;">You were previously in a match against <strong>${opponentName}</strong>. Would you like to rejoin or reject it?</p>
+            <p style="color: #ccc; font-size: 0.9rem;">You have an ongoing match against <strong>${opponentName}</strong>. Would you like to rejoin or reject and terminate it?</p>
             <div style="margin-top: 20px; display: flex; gap: 10px; justify-content: center;">
                 <button id="acceptRejoinBtn" class="btn btn-primary" style="background-color: #27ae60; flex: 1;">Rejoin Match</button>
                 <button id="rejectRejoinBtn" class="btn btn-secondary" style="background-color: #c0392b; flex: 1;">Reject & Terminate</button>
@@ -204,7 +222,16 @@ function showRejoinPopup(mId, match) {
 
     document.getElementById('rejectRejoinBtn').onclick = () => {
         modal.remove();
+        // Set match status to ended and winner to opponent to eject/notify any remaining player
         update(ref(db, `matches/${mId}`), { status: 'ended', winner: isBlue ? 'red' : 'blue' });
+        
+        // Find and completely remove the server node from Firebase so it disappears from the lobby list
+        findServerIdForMatch(mId, (sId) => {
+            if (sId) {
+                remove(ref(db, `servers/${sId}`));
+            }
+        });
+
         loadServerList();
         logToConsole("Rejected and terminated active match.");
     };
@@ -214,13 +241,14 @@ function findServerIdForMatch(mId, callback) {
     const serversRef = ref(db, 'servers');
     get(serversRef).then((snapshot) => {
         const servers = snapshot.val() || {};
+        let foundSId = null;
         for (let sId in servers) {
             if (servers[sId].matchId === mId) {
-                setCurrentServerId(sId);
+                foundSId = sId;
                 break;
             }
         }
-        if (callback) callback();
+        if (callback) callback(foundSId);
     });
 }
 
@@ -260,35 +288,71 @@ function createNewServer() {
 function loadServerList() {
     const serversRef = ref(db, 'servers');
     onValue(serversRef, (snapshot) => {
-        const data = snapshot.val() || {};
-        const listEl = document.getElementById('serverList');
-        if (!listEl) return;
-        listEl.innerHTML = '';
+        const serversData = snapshot.val() || {};
+        const matchesRef = ref(db, 'matches');
+        
+        get(matchesRef).then((matchSnapshot) => {
+            const matchesData = matchSnapshot.val() || {};
+            const listEl = document.getElementById('serverList');
+            if (!listEl) return;
+            listEl.innerHTML = '';
 
-        let totalServersCount = 0;
-        for (let sId in data) {
-            const server = data[sId];
-            totalServersCount++;
-            const item = document.createElement('div');
-            item.className = 'server-item';
+            let totalServersCount = 0;
+            for (let sId in serversData) {
+                const server = serversData[sId];
+                
+                // Automatically clean up stale or ended match servers from Firebase
+                if (server.status === 'playing' && server.matchId) {
+                    const match = matchesData[server.matchId];
+                    if (!match || match.status === 'ended') {
+                        remove(ref(db, `servers/${sId}`));
+                        continue; // Skip rendering ended matches entirely
+                    }
+                }
 
-            if (server.status === 'waiting') {
-                item.innerHTML = `
-                    <span>Host: <strong>${server.host}</strong> (Waiting for opponent)</span>
-                    <button class="btn btn-secondary" onclick="window.joinServer('${sId}')">Join Match</button>
-                `;
-            } else if (server.status === 'playing') {
-                item.innerHTML = `
-                    <span>Server [${server.host} vs ${server.guest}]: <strong style="color: #e74c3c;">Match Ongoing</strong></span>
-                    <button class="btn btn-secondary" disabled style="opacity: 0.6; cursor: not-allowed;">In Progress</button>
-                `;
+                totalServersCount++;
+                const item = document.createElement('div');
+                item.className = 'server-item';
+
+                if (server.status === 'waiting') {
+                    item.innerHTML = `
+                        <span>Host: <strong>${server.host}</strong> (Waiting for opponent)</span>
+                        <button class="btn btn-secondary" onclick="window.joinServer('${sId}')">Join Match</button>
+                    `;
+                } else if (server.status === 'playing' && server.matchId) {
+                    const match = matchesData[server.matchId];
+                    let isUserInMatch = false;
+                    let isUserAfk = false;
+
+                    if (match) {
+                        if (match.blueUser === currentUser) {
+                            isUserInMatch = true;
+                            isUserAfk = match.blueAfk === true;
+                        } else if (match.redUser === currentUser) {
+                            isUserInMatch = true;
+                            isUserAfk = match.redAfk === true;
+                        }
+                    }
+
+                    if (isUserInMatch && isUserAfk) {
+                        item.innerHTML = `
+                            <span>Server [${server.host} vs ${server.guest}]: <strong style="color: #f1c40f;">You are AFK</strong></span>
+                            <button class="btn btn-primary" onclick="window.rejoinActiveMatch('${server.matchId}', '${sId}')" style="background-color: #27ae60;">Rejoin Match</button>
+                        `;
+                    } else {
+                        item.innerHTML = `
+                            <span>Server [${server.host} vs ${server.guest}]: <strong style="color: #e74c3c;">Match Ongoing</strong></span>
+                            <button class="btn btn-secondary" disabled style="opacity: 0.6; cursor: not-allowed;">In Progress</button>
+                        `;
+                    }
+                }
+                listEl.appendChild(item);
             }
-            listEl.appendChild(item);
-        }
 
-        if (totalServersCount === 0) {
-            listEl.innerHTML = `<div style="color:var(--text-muted); font-size:0.8rem; text-align:center; margin-top:20px;">No servers active. Create one!</div>`;
-        }
+            if (totalServersCount === 0) {
+                listEl.innerHTML = `<div style="color:var(--text-muted); font-size:0.8rem; text-align:center; margin-top:20px;">No servers active. Create one!</div>`;
+            }
+        });
     });
 }
 
@@ -339,10 +403,28 @@ window.joinServer = function(sId) {
     });
 };
 
+window.rejoinActiveMatch = function(mId, sId) {
+    setCurrentMatchId(mId);
+    setCurrentServerId(sId);
+
+    get(ref(db, `matches/${mId}`)).then((snapshot) => {
+        const match = snapshot.val();
+        if (!match) return;
+
+        const isUserBlue = match.blueUser === currentUser;
+        setPlayerTeam(isUserBlue ? 'blue' : 'red');
+
+        const afkField = isUserBlue ? 'blueAfk' : 'redAfk';
+        update(ref(db, `matches/${mId}`), { [afkField]: false });
+
+        startGameSession(mId, isUserBlue ? 'blue' : 'red', currentUser, () => {
+            setIsLeavingDeliberately(true);
+            leaveMatchCompletely();
+        });
+    });
+};
+
 function leaveMatchCompletely() {
-    if (currentMatchId) {
-        update(ref(db, `matches/${currentMatchId}`), { status: 'ended', winner: playerTeam === 'blue' ? 'red' : 'blue' });
-    }
     if (currentServerId) {
         remove(ref(db, `servers/${currentServerId}`));
     }
@@ -350,5 +432,5 @@ function leaveMatchCompletely() {
     setCurrentServerId(null);
     showScreen('lobby-screen');
     loadServerList();
-    logToConsole("Left match and terminated completely.");
+    logToConsole("Left active session screen.");
 }
