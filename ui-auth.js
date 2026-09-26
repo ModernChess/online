@@ -1,7 +1,7 @@
-// ui-auth.js - Handles Authentication, Chat, and Presence features
+// ui-auth.js - Handles Authentication, Chat, and Independent Game Presence
 import { db, ref, onValue, push } from './network.js';
 
-export let currentUser = null;
+export let currentUser = localStorage.getItem('arena_chess_user') || null;
 export let currentServerId = null;
 export let currentMatchId = null;
 export let playerTeam = null;
@@ -33,13 +33,13 @@ export function showScreen(screenId) {
 }
 
 export function escapeHtml(str) {
-    // Safety check: ensure str is a valid string before calling replace
     if (typeof str !== 'string') return '';
     return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
+// Independent active players listener using 'game_presence'
 export function listenToActivePlayers() {
-    const playersRef = ref(db, 'players');
+    const playersRef = ref(db, 'game_presence');
     onValue(playersRef, (snapshot) => {
         const data = snapshot.val() || {};
         const container = document.getElementById('playersListContainer');
@@ -54,9 +54,13 @@ export function listenToActivePlayers() {
             if (info && info.online === true) {
                 onlineCount++;
                 const isYou = username === currentUser ? ' (You)' : '';
+                const avatar = info.avatar || '😀';
                 htmlContent += `
                     <div class="player-card">
-                        <span>${username}${isYou}</span>
+                        <div style="display: flex; align-items: center; gap: 6px;">
+                            <span style="font-size: 1.1rem;">${avatar}</span>
+                            <span>${username}${isYou}</span>
+                        </div>
                         <div class="player-badge-online"></div>
                     </div>
                 `;
@@ -75,17 +79,18 @@ export function sendGlobalMessage() {
     const text = input.value.trim();
     if (!text || !currentUser) return;
 
-    const chatRef = ref(db, 'globalChat');
+    const chatRef = ref(db, 'arena_globalChat');
     push(chatRef, {
         sender: currentUser,
-        text: text,
+        avatar: localStorage.getItem('arena_chess_avatar') || '😀',
+        message: text,
         timestamp: Date.now()
     });
     input.value = '';
 }
 
 export function listenToGlobalChat() {
-    const chatRef = ref(db, 'globalChat');
+    const chatRef = ref(db, 'arena_globalChat');
     onValue(chatRef, (snapshot) => {
         const data = snapshot.val() || {};
         const container = document.getElementById('globalChatMessages');
@@ -96,12 +101,12 @@ export function listenToGlobalChat() {
         const recent = messages.slice(-30);
 
         recent.forEach(msg => {
-            // Safety check: skip message nodes that don't have text or sender properties
-            if (!msg || typeof msg.text !== 'string') return;
+            if (!msg || typeof msg.message !== 'string') return;
 
+            const msgAvatar = msg.avatar || '😀';
             const div = document.createElement('div');
             div.className = 'global-chat-msg';
-            div.innerHTML = `<strong>${msg.sender || 'Unknown'}:</strong> ${escapeHtml(msg.text)}`;
+            div.innerHTML = `<span style="margin-right: 4px;">${msgAvatar}</span><strong>${msg.sender || 'Unknown'}:</strong> ${escapeHtml(msg.message)}`;
             container.appendChild(div);
         });
         container.scrollTop = container.scrollHeight;
