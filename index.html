@@ -5,6 +5,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Modern Chess Online - DevOnline</title>
     
+    <!-- Google Fonts: Fredoka -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;600;700&display=swap" rel="stylesheet">
+    
     <!-- Independent Logger Script loaded first -->
     <script src="logger.js"></script>
     
@@ -24,6 +29,11 @@
     <!-- WRAPPER TO CONTROL RESPONSIVE SIZING ON PC & MOBILE -->
     <div class="app-wrapper">
 
+        <!-- General Page Logo -->
+        <div class="app-logo-container">
+            <img src="https://raw.githubusercontent.com/ModernChess/assets-images/main/mchess.png" alt="Modern Chess Logo" class="app-logo">
+        </div>
+
         <!-- Active Players List Sidebar Drawer -->
         <div class="players-bar" id="playersBar">
             <div class="players-bar-header">
@@ -31,15 +41,15 @@
                     <div class="status-dot" id="statusDot"></div>
                     <span id="onlineCountText">Active Players (0)</span>
                 </div>
-                <span style="color:var(--secondary); font-size:0.7rem;">Players List ▲</span>
+                <span>Players List ▲</span>
             </div>
             <div class="players-list" id="playersListContainer">
-                <div style="color:var(--text-muted); font-size:0.75rem; text-align:center;">No players online</div>
+                <div>No players online</div>
             </div>
         </div>
 
         <!-- 1. LOGIN SCREEN -->
-        <div id="login-screen" class="screen active">
+        <div id="login-screen" class="screen">
             <div class="card">
                 <h2>Modern Chess Login</h2>
                 <div class="accounts-box">
@@ -63,9 +73,9 @@
         <div id="reconnect-screen" class="screen">
             <div class="card">
                 <h2>Active Match Found</h2>
-                <p style="font-size:0.85rem; color:var(--text-muted); margin-bottom:15px;">You have an ongoing match session saved. Would you like to rejoin or terminate it?</p>
+                <p style="margin-bottom:14px;">You have an ongoing match session saved. Would you like to rejoin or terminate it?</p>
                 <button class="btn btn-secondary" id="rejoinYesBtn">Rejoin Match</button>
-                <button class="btn btn-danger" id="rejoinNoBtn" style="margin-top:10px;">Terminate & Go to Lobby</button>
+                <button class="btn btn-danger" id="rejoinNoBtn" style="margin-top:8px;">Terminate & Go to Lobby</button>
             </div>
         </div>
 
@@ -73,17 +83,17 @@
         <div id="lobby-screen" class="screen">
             <div class="card">
                 <div class="top-bar">
-                    <span id="welcomeUser" style="font-weight:bold; color:var(--primary);"></span>
-                    <button class="btn btn-danger" id="logoutBtn" style="width:auto; padding:4px 8px; font-size:0.75rem; margin:0;">Logout</button>
+                    <span id="welcomeUser" style="font-weight:bold;"></span>
+                    <button class="btn btn-danger" id="logoutBtn" style="width:auto; padding:3px 8px; margin:0;">Logout</button>
                 </div>
                 <h2>Server Lobby</h2>
                 <button class="btn" id="createServerBtn">Create New Server</button>
                 
-                <button class="btn btn-danger" id="adminClearBtn" style="background:#d32f2f; margin-top:8px; font-size:0.8rem;">Admin: Clear All Matches & Data</button>
+                <button class="btn btn-danger" id="adminClearBtn" style="background:#d32f2f; margin-top:8px;">Admin: Clear All Matches & Data</button>
 
-                <div style="margin: 8px 0 4px 0; font-size:0.75rem; color:var(--text-muted); text-align:left;">Available Servers:</div>
+                <div style="margin: 10px 0 4px 0; text-align:left; font-weight:600;">Available Servers:</div>
                 <div class="server-list" id="serverList">
-                    <div style="color:var(--text-muted); font-size:0.8rem; text-align:center; margin-top:20px;">No servers active. Create one!</div>
+                    <div style="text-align:center; margin-top:25px;">No servers active. Create one!</div>
                 </div>
             </div>
 
@@ -91,11 +101,11 @@
             <div class="global-chat-widget">
                 <div class="global-chat-header">
                     <span>Universal Global Chat</span>
-                    <span style="font-size:0.7rem; color:var(--text-muted);">Lobby Public</span>
+                    <span>Lobby Public</span>
                 </div>
                 <div class="global-chat-body" id="globalChatMessages"></div>
                 <div class="global-chat-input-area">
-                    <input type="text" id="globalChatInput" placeholder="Chat with everyone in lobby...">
+                    <input type="text" id="globalChatInput" placeholder="Chat with everyone...">
                     <button class="btn btn-secondary" id="globalChatSend">Send</button>
                 </div>
             </div>
@@ -105,8 +115,8 @@
         <div id="wait-screen" class="screen">
             <div class="card">
                 <h2>Waiting for Opponent...</h2>
-                <p style="font-size:0.85rem; color:var(--text-muted);">You created this server. Waiting for 1 more player to join as Red Team.</p>
-                <div id="roomCodeDisplay" style="font-size:0.8rem; color:#ffeb3b; margin-bottom:15px;"></div>
+                <p>You created this server. Waiting for 1 more player to join as Red Team.</p>
+                <div id="roomCodeDisplay" style="margin-bottom:14px;"></div>
                 <button class="btn btn-danger" id="cancelRoomBtn">Cancel & Leave</button>
             </div>
         </div>
@@ -114,8 +124,8 @@
         <!-- 4. GAME SCREEN -->
         <div id="game-screen" class="screen">
             <div class="top-bar">
-                <span id="playerTeamBadge" style="font-weight:bold; font-size:0.8rem;"></span>
-                <button class="btn btn-danger" id="surrenderBtn" style="width:auto; padding:4px 8px; font-size:0.75rem; margin:0;">Surrender / Leave</button>
+                <span id="playerTeamBadge" style="font-weight:bold;"></span>
+                <button class="btn btn-danger" id="surrenderBtn" style="width:auto; padding:3px 8px; margin:0;">Surrender / Leave</button>
             </div>
             
             <div class="status-banner" id="statusBanner">Connecting to match...</div>
@@ -139,18 +149,40 @@
 
     </div>
 
-    <!-- Hide loading screen automatically when window fully loads -->
+    <!-- Bulletproof Non-Blocking Preloader & Fallback Safety Net -->
     <script>
-        window.addEventListener('load', () => {
+        const repoBaseUrl = 'https://raw.githubusercontent.com/ModernChess/assets-images/main/';
+        const criticalImages = [
+            repoBaseUrl + 'Background.jpg',
+            repoBaseUrl + 'UIback.png',
+            repoBaseUrl + 'Mchess.png'
+        ];
+
+        function removeLoader() {
             const loader = document.getElementById('loading-overlay');
-            if (loader) {
+            if (loader && loader.parentNode) {
                 loader.style.opacity = '0';
-                setTimeout(() => loader.remove(), 400);
+                setTimeout(() => loader.remove(), 300);
             }
+        }
+
+        // Kick off image pre-fetching without blocking execution
+        criticalImages.forEach(src => {
+            const img = new Image();
+            img.src = src;
+        });
+
+        // Safety fallback
+        window.addEventListener('DOMContentLoaded', () => {
+            setTimeout(removeLoader, 500);
+        });
+
+        window.addEventListener('load', () => {
+            setTimeout(removeLoader, 200);
         });
     </script>
 
-    <!-- Pointing to the new UI lobby entry module -->
+    <!-- Pointing to the updated UI lobby entry module -->
     <script type="module" src="ui-lobby.js"></script>
 </body>
 </html>
