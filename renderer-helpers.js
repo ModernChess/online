@@ -3,12 +3,13 @@ import {
     cols, rows, 
     colLetterToIndex, goldCoreList, goldList, artList, tList, rbList, bbList, navList, bbcList, rbcList 
 } from './game-config.js';
-import { getPendingUnitType } from './deployment.js';
+import { getPendingUnitType, isTileValidForTeam } from './deployment.js';
 
 let smokeParticles = [];
 let tileFlagAnimations = new Map();
 let tileFireTimestamps = new Map();
 let previousTileCapturesState = {};
+let capturesInitialized = false; 
 
 // Local constant asset repository base URL with updated burning city audio asset
 const repoBaseUrl = 'https://raw.githubusercontent.com/ModernChess/assets-images/main/';
@@ -48,22 +49,15 @@ function processAudioEffect(audioElement, fireElapsed, config) {
 function toCoordSet(list) {
     const set = new Set();
     list.forEach(item => {
-        let m = item.match(/^([A-Z]+)(\d+)$/);
-        if (m) set.add(`${colLetterToIndex(m[1])},${parseInt(m[2], 10) - 18}`);
+        if (typeof item === 'string' && item.includes(',')) {
+            set.add(item.trim());
+        } else {
+            let m = item.match(/^([A-Z]+)(\d+)$/);
+            if (m) set.add(`${colLetterToIndex(m[1])},${parseInt(m[2], 10) - 18}`);
+        }
     });
     return set;
 }
-
-export const deploymentRules = {
-    infantry: new Set([...toCoordSet(goldCoreList), ...toCoordSet(goldList), ...toCoordSet(rbList), ...toCoordSet(bbList), ...toCoordSet(bbcList), ...toCoordSet(rbcList)]),
-    artillery: toCoordSet(artList),
-    antiair: toCoordSet(artList),
-    engineer: toCoordSet(artList),
-    mine: toCoordSet(artList),
-    tank: toCoordSet(tList),
-    plane: toCoordSet(tList),
-    ship: toCoordSet(navList)
-};
 
 export const unitColors = {
     infantry: 'rgba(0, 128, 0, 0.35)',     
@@ -131,46 +125,68 @@ export function drawCapturedTileBadges(ctx, canvas, tileCaptures, getRenderCoord
     ctx.save();
     for (let key in tileCaptures) {
         let tileInfo = tileCaptures[key];
-        if (tileInfo && tileInfo.capturedBy) {
+        // Only draw badges for captured tiles, skipping 'gold core linked' so only GC shows badges
+        if (tileInfo && tileInfo.capturedBy && tileInfo.type !== 'gold core linked') {
             let parts = key.split(',');
             if (parts.length === 2) {
                 let gx = parseInt(parts[0], 10);
                 let gy = parseInt(parts[1], 10);
                 let pos = getRenderCoordinatesFunc(gx, gy, canvas.width, localTeam);
 
-                let badgeColor = tileInfo.capturedBy === 'blue' ? '#2196F3' : '#ff5252';
-                let badgeRadius = pos.cellSize * 0.18;
-                let badgeX = pos.x + pos.cellSize - badgeRadius - 4;
-                let badgeY = pos.y + badgeRadius + 4;
+                let size = pos.cellSize * 0.375;
+                let squareX = pos.x + (pos.cellSize - size) / 2;
+                let squareY = pos.y + (pos.cellSize - size) / 2;
 
-                ctx.fillStyle = badgeColor;
-                ctx.strokeStyle = '#ffffff';
-                ctx.lineWidth = 1.5;
+                let opaqueColor = tileInfo.capturedBy === 'blue' ? '#00e5ff' : '#ff4081';
 
-                ctx.beginPath();
-                ctx.arc(badgeX, badgeY, badgeRadius, 0, Math.PI * 2);
-                ctx.fill();
-                ctx.stroke();
+                ctx.strokeStyle = opaqueColor;
+                ctx.lineWidth = 2;
+                ctx.strokeRect(squareX, squareY, size, size);
+
+                let padding = 2;
+                let outerSize = size + (padding * 2);
+                let outerX = squareX - padding;
+                let outerY = squareY - padding;
+
+                ctx.strokeStyle = '#000000';
+                ctx.lineWidth = 1;
+                ctx.strokeRect(outerX, outerY, outerSize, outerSize);
             }
         }
     }
     ctx.restore();
 }
 
+export function initializeTileCapturesState(initialRemoteData) {
+    previousTileCapturesState = JSON.parse(JSON.stringify(initialRemoteData || {}));
+    tileFireTimestamps.clear();
+    tileFlagAnimations.clear();
+    capturesInitialized = true;
+}
+
 export function drawCapturedTileFireAndSmoke(ctx, canvas, tileCaptures, getRenderCoordinatesFunc, localTeam) {
     if (!tileCaptures) return;
     let now = performance.now();
 
+    if (!capturesInitialized) {
+        previousTileCapturesState = JSON.parse(JSON.stringify(tileCaptures));
+        capturesInitialized = true;
+        return; 
+    }
+
     for (let key in tileCaptures) {
         let tileInfo = tileCaptures[key];
-        if (tileInfo && tileInfo.capturedBy) {
-            if (!previousTileCapturesState[key] || previousTileCapturesState[key].capturedBy !== tileInfo.capturedBy) {
+        // Skip linked tiles so flag animations trigger solely on the central GC
+        if (tileInfo && tileInfo.capturedBy && tileInfo.type !== 'gold core linked') {
+            let prevTile = previousTileCapturesState[key];
+            if (!prevTile || prevTile.capturedBy !== tileInfo.capturedBy) {
                 if (!tileFlagAnimations.has(key) && !tileFireTimestamps.has(key)) {
                     tileFlagAnimations.set(key, now);
                 }
             }
         }
     }
+    
     previousTileCapturesState = JSON.parse(JSON.stringify(tileCaptures));
 
     ctx.save();
@@ -316,35 +332,29 @@ export function drawDeploymentOverlay(ctx, canvas, tileCaptures, units, getRende
     if (!activePendingType) return;
 
     let typeKey = activePendingType.toLowerCase();
-    let allowedTiles = deploymentRules[typeKey];
     let fillColor = unitColors[typeKey] || 'rgba(33, 150, 243, 0.35)';
     let strokeColor = unitBorderColors[typeKey] || '#2196F3';
 
-    if (allowedTiles) {
-        ctx.save();
-        for (let key in tileCaptures) {
-            let tileInfo = tileCaptures[key];
-            if (tileInfo && tileInfo.capturedBy === localTeam && allowedTiles.has(key)) {
-                let parts = key.split(',');
-                if (parts.length === 2) {
-                    let gx = parseInt(parts[0], 10);
-                    let gy = parseInt(parts[1], 10);
-                    
-                    let isOccupied = units.some(u => u.gridX === gx && u.gridY === gy);
-                    if (isOccupied) continue;
+    ctx.save();
+    for (let gx = 0; gx < cols; gx++) {
+        for (let gy = 0; gy < rows; gy++) {
+            let key = `${gx},${gy}`;
 
-                    let pos = getRenderCoordinatesFunc(gx, gy, canvas.width, localTeam);
-                    
-                    ctx.fillStyle = fillColor;
-                    ctx.fillRect(pos.x + 2, pos.y + 2, pos.cellSize - 4, pos.cellSize - 4);
+            if (isTileValidForTeam(key, activePendingType, localTeam)) {
+                let isOccupied = units.some(u => Number(u.gridX) === gx && Number(u.gridY) === gy);
+                if (isOccupied) continue;
 
-                    ctx.strokeStyle = strokeColor;
-                    ctx.lineWidth = 2;
-                    ctx.setLineDash([4, 4]);
-                    ctx.strokeRect(pos.x + 2, pos.y + 2, pos.cellSize - 4, pos.cellSize - 4);
-                }
+                let pos = getRenderCoordinatesFunc(gx, gy, canvas.width, localTeam);
+                
+                ctx.fillStyle = fillColor;
+                ctx.fillRect(pos.x + 2, pos.y + 2, pos.cellSize - 4, pos.cellSize - 4);
+
+                ctx.strokeStyle = strokeColor;
+                ctx.lineWidth = 2;
+                ctx.setLineDash([4, 4]);
+                ctx.strokeRect(pos.x + 2, pos.y + 2, pos.cellSize - 4, pos.cellSize - 4);
             }
         }
-        ctx.restore();
     }
+    ctx.restore();
 }
