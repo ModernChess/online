@@ -1,10 +1,14 @@
-// game-sync.js - Updated to pass the full match object for tile capture synchronization
+// game-sync.js - Safe synchronization preventing reload exploits while honoring server turn changes
 import { db, ref, update, onValue, push } from './network.js';
 import { showScreen } from './ui-manager.js';
+import { triggerMoveSound } from './sound.js';
 
 let matchEndTimeout = null;
+let lastProcessedActionTime = 0;
+let lastServerTurn = null;
+let isInitialSync = true; // Tracks the first snapshot after connecting/reloading
 
-export function listenToMatchUpdates(currentMatchId, playerTeam, unitsRef, logToConsole, onMatchEnded, onTurnChanged) {
+export function listenToMatchUpdates(currentMatchId, playerTeam, unitsRef, logToConsole, onMatchEnded, onTurnChanged, tileCapturesRef = null) {
     if (!currentMatchId) return;
     const matchRef = ref(db, `matches/${currentMatchId}`);
     
@@ -12,11 +16,47 @@ export function listenToMatchUpdates(currentMatchId, playerTeam, unitsRef, logTo
         const match = snapshot.val();
         if (!match) return;
         
+        const isMyTurn = match.turn === playerTeam;
+        
+        // Only trigger a true turn change if it's NOT the initial connection/reload sync
+        const serverTurnChanged = !isInitialSync && match.turn && match.turn !== lastServerTurn;
+        
+        if (match.turn) {
+            lastServerTurn = match.turn;
+        }
+
         if (match.turn && onTurnChanged) {
-            // Pass the entire match object as the second argument so tileCaptures can be synced
             onTurnChanged(match.turn, match);
         }
         
+        if (match.lastAction && match.lastAction.timestamp > lastProcessedActionTime) {
+            lastProcessedActionTime = match.lastAction.timestamp;
+            if (match.lastAction.team !== playerTeam) {
+                if (match.lastAction.type === 'MOVE') {
+                    triggerMoveSound(match.lastAction.unitName);
+                }
+            }
+        }
+        
+        // Synchronize tile captures and handle remote updates securely
+        if (match.tileCaptures && tileCapturesRef) {
+            Object.keys(match.tileCaptures).forEach(key => {
+                let remoteTile = match.tileCaptures[key];
+                if (tileCapturesRef[key]) {
+                    let oldOwner = tileCapturesRef[key].capturedBy;
+                    let newOwner = (remoteTile && remoteTile.capturedBy != null) ? remoteTile.capturedBy : null;
+                    
+                    // Update ownership value locally so renderer detects the shift and handles animations cleanly
+                    tileCapturesRef[key].capturedBy = newOwner;
+                } else if (remoteTile) {
+                    tileCapturesRef[key] = {
+                        type: remoteTile.type || 'unknown',
+                        capturedBy: (remoteTile.capturedBy != null) ? remoteTile.capturedBy : null
+                    };
+                }
+            });
+        }
+
         if (match.units) {
             const incomingMap = new Map();
             match.units.forEach(u => incomingMap.set(u.id, u));
@@ -25,8 +65,26 @@ export function listenToMatchUpdates(currentMatchId, playerTeam, unitsRef, logTo
                 let localUnit = unitsRef[i];
                 if (incomingMap.has(localUnit.id)) {
                     let incoming = incomingMap.get(localUnit.id);
+                    
+                    if (localUnit.gridX !== incoming.gridX || localUnit.gridY !== incoming.gridY) {
+                        localUnit.animFromX = localUnit.gridX;
+                        localUnit.animFromY = localUnit.gridY;
+                        localUnit.animStartTime = performance.now();
+                    }
+                    
                     localUnit.gridX = incoming.gridX;
                     localUnit.gridY = incoming.gridY;
+                    localUnit.lastKnownGridX = incoming.gridX;
+                    localUnit.lastKnownGridY = incoming.gridY;
+                    
+                    if (isInitialSync) {
+                        localUnit.hasMovedThisTurn = !!incoming.hasMovedThisTurn;
+                    } else if (serverTurnChanged && isMyTurn && localUnit.team === playerTeam) {
+                        localUnit.hasMovedThisTurn = false;
+                    } else {
+                        localUnit.hasMovedThisTurn = !!incoming.hasMovedThisTurn;
+                    }
+                    
                     incomingMap.delete(localUnit.id);
                 } else {
                     unitsRef.splice(i, 1);
@@ -40,17 +98,22 @@ export function listenToMatchUpdates(currentMatchId, playerTeam, unitsRef, logTo
                     animFromY: newUnit.gridY,
                     animStartTime: 0,
                     lastKnownGridX: newUnit.gridX,
-                    lastKnownGridY: newUnit.gridY
+                    lastKnownGridY: newUnit.gridY,
+                    hasMovedThisTurn: isInitialSync ? !!newUnit.hasMovedThisTurn : ((serverTurnChanged && isMyTurn && newUnit.team === playerTeam) ? false : !!newUnit.hasMovedThisTurn)
                 });
             });
         }
         
+        // Initial sync handshake is complete after processing the first snapshot
+        isInitialSync = false;
+        
+        let myUserName = playerTeam === 'blue' ? (match.blueUser || 'Blue Player') : (match.redUser || 'Red Player');
         let opponentName = playerTeam === 'blue' ? (match.redUser || 'Opponent') : (match.blueUser || 'Opponent');
-        let opponentIsAfk = playerTeam === 'blue' ? match.redAfk : match.blueAfk;
+        let opponentIsAfk = playerTeam === 'blue' ? match.redAfk : match.redAfk;
 
         const banner = document.getElementById('statusBanner');
         if (match.status === 'ended') {
-            banner.innerText = `Match Ended! Winner: ${match.winner ? match.winner.toUpperCase() : 'Draw'}`;
+            banner.innerHTML = `<div style="background: #2c3e50; color: #f1c40f; padding: 10px; border-radius: 8px; font-weight: bold; text-align: center;">Match Ended! Winner: ${match.winner ? match.winner.toUpperCase() : 'Draw'}</div>`;
             logToConsole(`Match ended. Winner: ${match.winner}. Returning to lobby in 4 seconds...`);
             
             if (!matchEndTimeout) {
@@ -60,12 +123,25 @@ export function listenToMatchUpdates(currentMatchId, playerTeam, unitsRef, logTo
                 }, 4000);
             }
         } else {
-            const isMyTurn = match.turn === playerTeam;
-            let statusText = `VS ${opponentName} | Turn: ${match.turn.toUpperCase()} (${isMyTurn ? 'Your Turn' : `${opponentName}'s Turn`})`;
+            let turnColorClass = match.turn === 'blue' ? 'turn-blue-box' : 'turn-red-box';
+            let turnDisplayText = `${match.turn.toUpperCase()} (${isMyTurn ? 'Your Turn' : `${opponentName}'s Turn`})`;
+            
+            let bannerHTML = `
+                <div class="battle-vs-container">
+                    <div class="battle-vs-box">
+                        <span>${myUserName}</span>
+                        <span class="vs-badge">VS</span>
+                        <span>${opponentName}</span>
+                    </div>
+                    <div class="turn-indicator-box ${turnColorClass}">
+                        Turn: ${turnDisplayText}
+                    </div>
+                </div>
+            `;
             if (opponentIsAfk) {
-                statusText += ` | [${opponentName} has gone AFK. They can rejoin once they get into the app again!]`;
+                bannerHTML += `<div style="color: #e74c3c; font-weight: bold; margin-top: 4px; font-size: 11px;">[${opponentName} has gone AFK. They can rejoin once they get into the app again!]</div>`;
             }
-            banner.innerText = statusText;
+            banner.innerHTML = bannerHTML;
         }
     });
 }
