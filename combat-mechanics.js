@@ -109,7 +109,6 @@ function getSuperunitsForTeamBase(teamName, allUnits) {
                     let sharingEnemyBridge = false;
                     
                     if (!touching) {
-                        // Enemy bridge check: if two friendly units touch the same opposing enemy unit, they connect[span_1](start_span)[span_1](end_span)
                         sharingEnemyBridge = allUnits.some(enemy => 
                             enemy.team !== teamName && areUnitsAdjacent(curr, enemy) && areUnitsAdjacent(other, enemy)
                         );
@@ -401,7 +400,34 @@ export function resolveCombat(unitsList, logCallback) {
         });
     });
 
-    // 8. Infantry & Tank Adjacent Combat Resolution
+    // 8. Ship-to-Ship Adjacent Mutual Destruction Check
+    let shipsList = unitsList.filter(u => u.name === 'Ship' && !u.stalemate && !stalematedUnits.has(u.id));
+    shipsList.forEach(shipA => {
+        let enemyShips = unitsList.filter(u => u.name === 'Ship' && u.team !== shipA.team && !u.stalemate && !stalematedUnits.has(u.id));
+        enemyShips.forEach(shipB => {
+            if (areUnitsAdjacent(shipA, shipB)) {
+                if (!destroyedIds.has(shipA.id)) {
+                    destroyedIds.add(shipA.id);
+                    unitsToDestroy.push({ 
+                        unit: shipA, destroyedBy: 'Ship Collision',
+                        reason: `Ship (${shipA.team}) touched adjacent enemy Ship (${shipB.team}) causing mutual destruction` 
+                    });
+                }
+                if (!destroyedIds.has(shipB.id)) {
+                    destroyedIds.add(shipB.id);
+                    unitsToDestroy.push({ 
+                        unit: shipB, destroyedBy: 'Ship Collision',
+                        reason: `Ship (${shipB.team}) touched adjacent enemy Ship (${shipA.team}) causing mutual destruction` 
+                    });
+                }
+                if (logCallback) {
+                    logCallback(`Combat! Ships from opposing teams collided at adjacency and mutually destroyed each other!`);
+                }
+            }
+        });
+    });
+
+    // 9. Infantry & Tank Adjacent Combat Resolution (Fixed standard loop structure)
     let infantryAndTanks = unitsList.filter(u => (u.name === 'Infantry' || u.name === 'Tank') && !u.stalemate && !stalematedUnits.has(u.id));
     infantryAndTanks.forEach(attacker => {
         let enemyUnits = unitsList.filter(u => u.team !== attacker.team);
