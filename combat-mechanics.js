@@ -426,17 +426,4 @@ export function resolveCombat(unitsList, logCallback) {
     return unitsToDestroy.length > 0;
 }
 
-export function processDestructions(unitsList) {
-    if (unitsToDestroy.length === 0) return false;
-    let targetIds = new Set(unitsToDestroy.map(item => item.unit.id));
-
-    for (let i = unitsList.length - 1; i >= 0; i--) {
-        if (targetIds.has(unitsList[i].id)) {
-            let u = unitsList[i];
-            stalematedUnits.delete(u.id);
-            unitsList.splice(i, 1);
-        }
-    }
-    updateStalemates(unitsList);
-    return true;
-}
+export function processD
