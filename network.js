@@ -1,7 +1,7 @@
-// network.js - Firebase Service & Presence Management
+// network.js - Firebase Service & Presence Management (Independent Game Node)
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
 import { 
-    getDatabase, ref, set, get, update, remove, onValue, push, onDisconnect 
+    getDatabase, ref, set, get, update, remove, onValue, push, onDisconnect, serverTimestamp 
 } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
 
 const firebaseConfig = {
@@ -17,32 +17,31 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 export const db = getDatabase(app);
 
-// --- PRESENCE SYSTEM (Player Online Tracking) ---
+// --- INDEPENDENT GAME PRESENCE SYSTEM ---
 export function setupUserPresence(username) {
     if (!username) return;
-    const userStatusRef = ref(db, `players/${username}`);
+    const userStatusRef = ref(db, `game_presence/${username}`);
+    const currentAvatar = localStorage.getItem('arena_chess_avatar') || '😀';
 
-    // Set user online
     set(userStatusRef, {
         online: true,
-        lastSeen: Date.now()
+        avatar: currentAvatar,
+        lastSeen: serverTimestamp()
     });
 
-    // When the user disconnects (closes tab / loses connection), mark them offline
-    onDisconnect(userStatusRef).set({
+    onDisconnect(userStatusRef).update({
         online: false,
-        lastSeen: Date.now()
+        lastSeen: serverTimestamp()
     });
 }
 
 export function markUserOffline(username) {
     if (!username) return;
-    const userStatusRef = ref(db, `players/${username}`);
-    set(userStatusRef, {
+    const userStatusRef = ref(db, `game_presence/${username}`);
+    update(userStatusRef, {
         online: false,
-        lastSeen: Date.now()
+        lastSeen: serverTimestamp()
     });
 }
 
-// Export database functions for use in game.js
-export { ref, set, get, update, remove, onValue, push };
+export { ref, set, get, update, remove, onValue, push, onDisconnect, serverTimestamp };
