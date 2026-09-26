@@ -1,4 +1,4 @@
-// game-renderer.js - Handles Canvas Drawing, Map Background Rendering, Unit Visuals, Glide Animations, Tile Highlighting, and Stalemate Badges
+// game-renderer.js - Handles Canvas Drawing, Map Background Rendering, Unit Visuals, Glide Animations, Tile Highlighting, and Stalemate Badges (18x18 System)
 import { 
     cols, rows, 
     blueAntiairImg, blueAntiairLoaded, redAntiairImg, redAntiairLoaded, 
@@ -54,6 +54,7 @@ export function drawGameScene(ctx, canvas, units, selectedUnit, localTeam, legal
     applyCameraTransform(ctx);
 
     let boardWidth = canvas.width;
+    // Fix: Properly compute board height matching the 18x18 aspect ratio via rows/cols configuration
     let boardHeight = boardWidth * (rows / cols);
 
     ctx.save();
@@ -292,21 +293,20 @@ export function drawGameScene(ctx, canvas, units, selectedUnit, localTeam, legal
 
         let renderDrawY = unit.animY + floatOffset;
 
-        // --- DIRECTIONAL ROTATION & FAST ANIMATION CALCULATION ---
         let fromX = unit.animFromX !== undefined ? unit.animFromX : unit.gridX;
         let fromY = unit.animFromY !== undefined ? unit.animFromY : unit.gridY;
         let dx = unit.gridX - fromX;
         let dy = unit.gridY - fromY;
 
-        let targetAngle = 0; // Default North (Up)
-        if (dx === 0 && dy < 0) targetAngle = 0;                      // Up
-        else if (dx > 0 && dy < 0) targetAngle = Math.PI / 4;        // Up-Right (45°)
-        else if (dx > 0 && dy === 0) targetAngle = Math.PI / 2;      // Right (90°)
-        else if (dx > 0 && dy > 0) targetAngle = (3 * Math.PI) / 4;  // Down-Right (135°)
-        else if (dx === 0 && dy > 0) targetAngle = Math.PI;          // Down (180°)
-        else if (dx < 0 && dy > 0) targetAngle = -(3 * Math.PI) / 4; // Down-Left (-135°)
-        else if (dx < 0 && dy === 0) targetAngle = -Math.PI / 2;     // Left (-90°)
-        else if (dx < 0 && dy < 0) targetAngle = -Math.PI / 4;       // Up-Left (-45°)
+        let targetAngle = 0; 
+        if (dx === 0 && dy < 0) targetAngle = 0;                      
+        else if (dx > 0 && dy < 0) targetAngle = Math.PI / 4;        
+        else if (dx > 0 && dy === 0) targetAngle = Math.PI / 2;      
+        else if (dx > 0 && dy > 0) targetAngle = (3 * Math.PI) / 4;  
+        else if (dx === 0 && dy > 0) targetAngle = Math.PI;          
+        else if (dx < 0 && dy > 0) targetAngle = -(3 * Math.PI) / 4; 
+        else if (dx < 0 && dy === 0) targetAngle = -Math.PI / 2;     
+        else if (dx < 0 && dy < 0) targetAngle = -Math.PI / 4;       
 
         if (localTeam === 'red') {
             targetAngle += Math.PI;
@@ -316,9 +316,8 @@ export function drawGameScene(ctx, canvas, units, selectedUnit, localTeam, legal
             unit.visualAngle = targetAngle;
         } else {
             let angleDiff = targetAngle - unit.visualAngle;
-            // Shortest path angle wrap handling
             angleDiff = Math.atan2(Math.sin(angleDiff), Math.cos(angleDiff));
-            unit.visualAngle += angleDiff * 0.35; // 0.35 interpolation factor makes it spin very quickly and smoothly
+            unit.visualAngle += angleDiff * 0.35; 
         }
 
         let unitImg = null;
@@ -345,22 +344,20 @@ export function drawGameScene(ctx, canvas, units, selectedUnit, localTeam, legal
 
         let cellCenterX = unit.animX + targetPos.cellSize / 2;
         let cellCenterY = renderDrawY + targetPos.cellSize / 2;
-        let drawSize = (targetPos.cellSize - 4) * 2.0; // 100% larger size
+        let drawSize = (targetPos.cellSize - 4) * 2.0; 
 
         ctx.save();
         ctx.translate(cellCenterX, cellCenterY);
         ctx.rotate(unit.visualAngle);
 
         if (isLoaded && unitImg && unitImg.complete) {
-            // 1. Back Layer: Increased silhouette size multiplier (1.14x) for a slightly bigger black outline boundary
             ctx.save();
-            ctx.filter = 'brightness(0)'; // Turns the image completely black
-            ctx.globalAlpha = 0.5;        // Semi-transparent
+            ctx.filter = 'brightness(0)'; 
+            ctx.globalAlpha = 0.5;        
             let outlineSize = drawSize * 1.14; 
             ctx.drawImage(unitImg, -outlineSize / 2, -outlineSize / 2, outlineSize, outlineSize);
             ctx.restore();
 
-            // 2. Front Layer: Draw the original unit sprite cleanly on top
             ctx.drawImage(unitImg, -drawSize / 2, -drawSize / 2, drawSize, drawSize);
         } else {
             ctx.fillStyle = unit.team === 'blue' ? '#2196F3' : '#ff5252';
@@ -382,7 +379,6 @@ export function drawGameScene(ctx, canvas, units, selectedUnit, localTeam, legal
             ctx.strokeRect(unit.animX + 4, renderDrawY + 4, targetPos.cellSize - 8, targetPos.cellSize - 8);
         }
 
-        // --- STALEMATE & SUPERUNIT POWER BADGE RENDERING ---
         let clusterPower = singleBadgeMap.get(unit.id);
         let isStalemated = unit.stalemate || stalematedUnits.has(unit.id);
         let teamSuList = teamSuperunitsMap.get(unit.team) || [];
