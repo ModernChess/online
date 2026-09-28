@@ -14,14 +14,12 @@ export function initLobbyModule() {
     listenToActivePlayers();
     listenToGlobalChat();
 
-    // Disable and hide the logout button since sessions are managed via the home hub profile
     const logoutBtn = document.getElementById('logoutBtn');
     if (logoutBtn) {
         logoutBtn.style.display = 'none';
         logoutBtn.disabled = true;
     }
 
-    // Restrict Admin Clear button visibility to testaccount3 only (Case-insensitive check)
     const adminClearBtn = document.getElementById('adminClearBtn');
     if (adminClearBtn) {
         const savedUser = localStorage.getItem('arena_chess_user');
@@ -61,23 +59,27 @@ export function initLobbyModule() {
 }
 
 function checkCachedSession() {
-    // Read directly from the home website's shared cache key
     const savedUser = localStorage.getItem('arena_chess_user');
     
     if (savedUser) {
         setCurrentUser(savedUser);
         logToConsole(`Auto-logged in via home cache as: ${savedUser}`);
         
-        // Triggers the independent game presence tracker in network.js (`game_presence`)
         setupUserPresence(savedUser);
-        
         showScreen('lobby-screen');
         
         const avatar = localStorage.getItem('arena_chess_avatar') || '😀';
-        const welcomeUser = document.getElementById('welcomeUser');
-        if (welcomeUser) welcomeUser.innerHTML = `<span style="font-size: 1.1rem; margin-right: 4px;">${avatar}</span> Logged in as: <strong>${savedUser}</strong>`;
+        const faction = localStorage.getItem('arena_chess_faction') || 'Order';
+        // Default to Grandmarshall 1st class if not set
+        const rank = localStorage.getItem('arena_chess_rank') || 'Grandmarshall (1st Class 🌟🌟🌟)';
+        const factionColor = faction === 'Order' ? 'var(--secondary)' : 'var(--accent)';
         
-        // Re-check admin button visibility upon session validation (Case-insensitive)
+        const welcomeUser = document.getElementById('welcomeUser');
+        if (welcomeUser) {
+            // Displays complete new descending class format in lobby welcome header
+            welcomeUser.innerHTML = `<span style="font-size: 1.1rem; margin-right: 4px; vertical-align: middle;">${avatar}</span> <span style="color: ${factionColor}; font-weight: 600;">[${faction} • ${rank}]</span> Logged in as: <strong>${savedUser}</strong>`;
+        }
+        
         const adminClearBtn = document.getElementById('adminClearBtn');
         if (adminClearBtn) {
             if (savedUser.toLowerCase() === 'testaccount3') {
@@ -103,7 +105,6 @@ function initEventListeners() {
             const p = document.getElementById('passInput').value.trim();
             const err = document.getElementById('loginError');
 
-            // Quick fallback preset check if logging in directly on game page
             if (!u || p !== '123') {
                 if (err) err.innerText = "Invalid username or password!";
                 logToConsole(`Login failed for username: ${u}`);
@@ -116,10 +117,16 @@ function initEventListeners() {
             setupUserPresence(u);
 
             showScreen('lobby-screen');
-            const welcomeUser = document.getElementById('welcomeUser');
-            if (welcomeUser) welcomeUser.innerText = `Logged in as: ${u}`;
+            const avatar = localStorage.getItem('arena_chess_avatar') || '😀';
+            const faction = localStorage.getItem('arena_chess_faction') || 'Order';
+            const rank = localStorage.getItem('arena_chess_rank') || 'Grandmarshall (1st Class 🌟🌟🌟)';
+            const factionColor = faction === 'Order' ? 'var(--secondary)' : 'var(--accent)';
             
-            // Handle admin clear button visibility on login click (Case-insensitive)
+            const welcomeUser = document.getElementById('welcomeUser');
+            if (welcomeUser) {
+                welcomeUser.innerHTML = `<span style="font-size: 1.1rem; margin-right: 4px; vertical-align: middle;">${avatar}</span> <span style="color: ${factionColor}; font-weight: 600;">[${faction} • ${rank}]</span> Logged in as: <strong>${u}</strong>`;
+            }
+            
             const adminClearBtn = document.getElementById('adminClearBtn');
             if (adminClearBtn) {
                 if (u.toLowerCase() === 'testaccount3') {
