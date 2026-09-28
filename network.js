@@ -22,10 +22,14 @@ export function setupUserPresence(username) {
     if (!username) return;
     const userStatusRef = ref(db, `game_presence/${username}`);
     const currentAvatar = localStorage.getItem('arena_chess_avatar') || '😀';
+    const currentFaction = localStorage.getItem('arena_chess_faction') || 'Order';
+    const currentRank = localStorage.getItem('arena_chess_rank') || 'Trainee';
 
     set(userStatusRef, {
         online: true,
         avatar: currentAvatar,
+        faction: currentFaction,
+        rank: currentRank,
         lastSeen: serverTimestamp()
     });
 
