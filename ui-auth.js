@@ -37,7 +37,7 @@ export function escapeHtml(str) {
     return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
-// Independent active players listener using 'game_presence'
+// Active players listener rendering descending class & badges accurately
 export function listenToActivePlayers() {
     const playersRef = ref(db, 'game_presence');
     onValue(playersRef, (snapshot) => {
@@ -55,11 +55,18 @@ export function listenToActivePlayers() {
                 onlineCount++;
                 const isYou = username === currentUser ? ' (You)' : '';
                 const avatar = info.avatar || '😀';
+                const faction = info.faction || 'Order';
+                const rank = info.rank || 'Grandmarshall (1st Class 🌟🌟🌟)';
+                const factionColor = faction === 'Order' ? '#2ecc71' : '#e74c3c';
+
                 htmlContent += `
                     <div class="player-card">
-                        <div style="display: flex; align-items: center; gap: 6px;">
-                            <span style="font-size: 1.1rem;">${avatar}</span>
-                            <span>${username}${isYou}</span>
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <span style="font-size: 1.2rem;">${avatar}</span>
+                            <div>
+                                <div><strong>${username}</strong>${isYou}</div>
+                                <div style="font-size: 0.75rem; color: ${factionColor}; font-weight: 600;">${faction} • ${rank}</div>
+                            </div>
                         </div>
                         <div class="player-badge-online"></div>
                     </div>
@@ -83,6 +90,8 @@ export function sendGlobalMessage() {
     push(chatRef, {
         sender: currentUser,
         avatar: localStorage.getItem('arena_chess_avatar') || '😀',
+        faction: localStorage.getItem('arena_chess_faction') || 'Order',
+        rank: localStorage.getItem('arena_chess_rank') || 'Grandmarshall (1st Class 🌟🌟🌟)',
         message: text,
         timestamp: Date.now()
     });
@@ -104,9 +113,21 @@ export function listenToGlobalChat() {
             if (!msg || typeof msg.message !== 'string') return;
 
             const msgAvatar = msg.avatar || '😀';
+            const msgFaction = msg.faction || 'Order';
+            const msgRank = msg.rank || 'Grandmarshall (1st Class 🌟🌟🌟)';
+            const factionTagColor = msgFaction === 'Order' ? '#2ecc71' : '#e74c3c';
+
             const div = document.createElement('div');
             div.className = 'global-chat-msg';
-            div.innerHTML = `<span style="margin-right: 4px;">${msgAvatar}</span><strong>${msg.sender || 'Unknown'}:</strong> ${escapeHtml(msg.message)}`;
+            // Global chat now broadcasts full descending class tags clearly
+            div.innerHTML = `
+                <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 2px; flex-wrap: wrap;">
+                    <span>${msgAvatar}</span>
+                    <span style="color: ${factionTagColor}; font-size: 0.75rem; font-weight: 700;">[${msgFaction} • ${msgRank}]</span>
+                    <span style="color: var(--secondary); font-weight: 600;">${msg.sender || 'Unknown'}:</span>
+                </div>
+                <div style="padding-left: 20px; word-break: break-word;">${escapeHtml(msg.message)}</div>
+            `;
             container.appendChild(div);
         });
         container.scrollTop = container.scrollHeight;
