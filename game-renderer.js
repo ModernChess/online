@@ -54,13 +54,16 @@ export function drawGameScene(ctx, canvas, units, selectedUnit, localTeam, legal
     applyCameraTransform(ctx);
 
     let boardWidth = canvas.width;
-    // Fix: Properly compute board height matching the 18x18 aspect ratio via rows/cols configuration
     let boardHeight = boardWidth * (rows / cols);
 
+    // FIX: Safely isolate the map background rotation so only the map image 
+    // is visually flipped 180° for the Red team, leaving the world coordinate 
+    // space for units and clicks perfectly aligned and easy to interact with.
     ctx.save();
     if (localTeam === 'red') {
-        ctx.translate(boardWidth, boardHeight);
+        ctx.translate(boardWidth / 2, boardHeight / 2);
         ctx.rotate(Math.PI);
+        ctx.translate(-boardWidth / 2, -boardHeight / 2);
     }
     if (mapLoaded && mapImg && mapImg.complete) {
         ctx.drawImage(mapImg, 0, 0, boardWidth, boardHeight);
