@@ -2,6 +2,7 @@
 import { db, ref, update, onValue, push } from './network.js';
 import { showScreen } from './ui-manager.js';
 import { triggerMoveSound } from './sound.js';
+import { updateTurnStatusBanner } from './game-controls.js';
 
 let matchEndTimeout = null;
 let lastProcessedActionTime = 0;
@@ -123,18 +124,17 @@ export function listenToMatchUpdates(currentMatchId, playerTeam, unitsRef, logTo
                 }, 4000);
             }
         } else {
-            let turnColorClass = match.turn === 'blue' ? 'turn-blue-box' : 'turn-red-box';
-            let turnDisplayText = `${match.turn.toUpperCase()} (${isMyTurn ? 'Your Turn' : `${opponentName}'s Turn`})`;
-            
+            // Feed active player name directly into the sleek top HUD banner
+            let activePlayerName = isMyTurn ? myUserName : opponentName;
+            updateTurnStatusBanner(match.turn, activePlayerName);
+
+            // Keep the VS container clean and focused on user match cards
             let bannerHTML = `
                 <div class="battle-vs-container">
                     <div class="battle-vs-box">
                         <span>${myUserName}</span>
                         <span class="vs-badge">VS</span>
                         <span>${opponentName}</span>
-                    </div>
-                    <div class="turn-indicator-box ${turnColorClass}">
-                        Turn: ${turnDisplayText}
                     </div>
                 </div>
             `;
