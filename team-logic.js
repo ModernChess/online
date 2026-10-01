@@ -69,20 +69,20 @@ export function parseCoord(item) {
 
 export function initTileCaptures() {
     tileCaptures = {};
-    const registerList = (list, typeName) => {
+    const registerList = (list, typeName, defaultOwner = null) => {
         list.forEach(item => {
             let key = parseCoord(item);
             if (key) {
-                tileCaptures[key] = { type: typeName, capturedBy: null };
+                tileCaptures[key] = { type: typeName, capturedBy: defaultOwner };
             }
         });
     };
 
-    registerList(goldList, 'gold');
-    registerList(redBasesList, 'red base');
-    registerList(blueBasesList, 'blue base');
-    registerList(bbcList, 'blue base command');
-    registerList(rbcList, 'red base command');
+    registerList(goldList, 'gold', null);
+    registerList(redBasesList, 'red base', 'red');       // Pre-captured by Red[span_0](start_span)[span_0](end_span)
+    registerList(blueBasesList, 'blue base', 'blue');    // Pre-captured by Blue[span_1](start_span)[span_1](end_span)
+    registerList(bbcList, 'blue base command', 'blue');  // Pre-captured by Blue[span_2](start_span)[span_2](end_span)
+    registerList(rbcList, 'red base command', 'red');    // Pre-captured by Red[span_3](start_span)[span_3](end_span)
 
     // Register gold core clusters (GC gets 'gold core', linked tiles get 'gold core linked')
     goldCoreClusters.forEach(cluster => {
