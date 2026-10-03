@@ -1,7 +1,7 @@
 // network.js - Firebase Service & Presence Management (Independent Game Node)
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
 import { 
-    getDatabase, ref, set, get, update, remove, onValue, push, onDisconnect, serverTimestamp 
+    getDatabase, ref, set, get, update, remove, onValue, off, push, onDisconnect, serverTimestamp 
 } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
 
 const firebaseConfig = {
@@ -48,4 +48,4 @@ export function markUserOffline(username) {
     });
 }
 
-export { ref, set, get, update, remove, onValue, push, onDisconnect, serverTimestamp };
+export { ref, set, get, update, remove, onValue, off, push, onDisconnect, serverTimestamp };
