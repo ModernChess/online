@@ -1,5 +1,5 @@
 // game-sync.js - Safe synchronization preventing reload exploits while honoring server turn changes
-import { db, ref, update, onValue, push } from './network.js';
+import { db, ref, update, onValue, off, push } from './network.js';
 import { showScreen } from './ui-manager.js';
 import { triggerMoveSound } from './sound.js';
 import { updateTurnStatusBanner } from './game-controls.js';
@@ -10,10 +10,10 @@ let lastServerTurn = null;
 let isInitialSync = true; // Tracks the first snapshot after connecting/reloading
 
 export function listenToMatchUpdates(currentMatchId, playerTeam, unitsRef, logToConsole, onMatchEnded, onTurnChanged, tileCapturesRef = null) {
-    if (!currentMatchId) return;
+    if (!currentMatchId) return null;
     const matchRef = ref(db, `matches/${currentMatchId}`);
     
-    onValue(matchRef, (snapshot) => {
+    const unsubscribe = onValue(matchRef, (snapshot) => {
         const match = snapshot.val();
         if (!match) return;
         
@@ -44,10 +44,7 @@ export function listenToMatchUpdates(currentMatchId, playerTeam, unitsRef, logTo
             Object.keys(match.tileCaptures).forEach(key => {
                 let remoteTile = match.tileCaptures[key];
                 if (tileCapturesRef[key]) {
-                    let oldOwner = tileCapturesRef[key].capturedBy;
                     let newOwner = (remoteTile && remoteTile.capturedBy != null) ? remoteTile.capturedBy : null;
-                    
-                    // Update ownership value locally so renderer detects the shift and handles animations cleanly
                     tileCapturesRef[key].capturedBy = newOwner;
                 } else if (remoteTile) {
                     tileCapturesRef[key] = {
@@ -105,7 +102,6 @@ export function listenToMatchUpdates(currentMatchId, playerTeam, unitsRef, logTo
             });
         }
         
-        // Initial sync handshake is complete after processing the first snapshot
         isInitialSync = false;
         
         let myUserName = playerTeam === 'blue' ? (match.blueUser || 'Blue Player') : (match.redUser || 'Red Player');
@@ -124,11 +120,9 @@ export function listenToMatchUpdates(currentMatchId, playerTeam, unitsRef, logTo
                 }, 4000);
             }
         } else {
-            // Feed active player name directly into the sleek top HUD banner
             let activePlayerName = isMyTurn ? myUserName : opponentName;
             updateTurnStatusBanner(match.turn, activePlayerName);
 
-            // Keep the VS container clean and focused on user match cards
             let bannerHTML = `
                 <div class="battle-vs-container">
                     <div class="battle-vs-box">
@@ -144,6 +138,15 @@ export function listenToMatchUpdates(currentMatchId, playerTeam, unitsRef, logTo
             banner.innerHTML = bannerHTML;
         }
     });
+
+    // Return the reference and listener block so it can be detached externally
+    return () => {
+        off(matchRef);
+        if (matchEndTimeout) {
+            clearTimeout(matchEndTimeout);
+            matchEndTimeout = null;
+        }
+    };
 }
 
 export function listenToMatchChat(currentMatchId, currentUser) {
