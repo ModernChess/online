@@ -6,6 +6,7 @@ import {
 import { getPendingUnitType, isTileValidForTeam } from './deployment.js';
 
 let smokeParticles = [];
+let destructionParticles = []; // Registry for unit disintegration and burning embers
 let tileFlagAnimations = new Map();
 let tileFireTimestamps = new Map();
 let previousTileCapturesState = {};
@@ -44,19 +45,6 @@ function processAudioEffect(audioElement, fireElapsed, config) {
     } else if (audioElapsed > config.endTime) {
         audioElement.pause();
     }
-}
-
-function toCoordSet(list) {
-    const set = new Set();
-    list.forEach(item => {
-        if (typeof item === 'string' && item.includes(',')) {
-            set.add(item.trim());
-        } else {
-            let m = item.match(/^([A-Z]+)(\d+)$/);
-            if (m) set.add(`${colLetterToIndex(m[1])},${parseInt(m[2], 10) - 18}`);
-        }
-    });
-    return set;
 }
 
 export const unitColors = {
@@ -120,12 +108,72 @@ export function drawSmokeParticles(ctx) {
     ctx.restore();
 }
 
+/**
+ * Triggers disintegration and burning ember particle effects precisely around the destroyed unit using its animated position.
+ */
+export function triggerDestructionEffect(unit, getRenderCoordinatesFunc, canvasWidth, localTeam) {
+    let canvasEl = typeof document !== 'undefined' ? document.querySelector('canvas') : null;
+    let effectiveWidth = (canvasEl && canvasEl.width > 0) ? canvasEl.width : canvasWidth;
+    let cellSize = effectiveWidth / cols;
+
+    let cx, cy;
+    if (unit.animX !== undefined && unit.animY !== undefined) {
+        cx = unit.animX + cellSize / 2;
+        cy = unit.animY + cellSize / 2;
+    } else {
+        let pos = getRenderCoordinatesFunc(unit.gridX, unit.gridY, effectiveWidth, localTeam);
+        cx = pos.x + pos.cellSize / 2;
+        cy = pos.y + pos.cellSize / 2;
+    }
+
+    for (let i = 0; i < 40; i++) {
+        let angle = Math.random() * Math.PI * 2;
+        let speed = 0.5 + Math.random() * 4.0;
+        destructionParticles.push({
+            x: cx,
+            y: cy,
+            vx: Math.cos(angle) * speed,
+            vy: Math.sin(angle) * speed - 1.2, // Upward fire/smoke drift
+            radius: 2 + Math.random() * 5,
+            life: 1.0,
+            decay: 0.02 + Math.random() * 0.025,
+            color: Math.random() > 0.4 ? '#ff5722' : (Math.random() > 0.5 ? '#ffeb3b' : '#333333')
+        });
+    }
+}
+
+/**
+ * Renders active unit destruction, burning, and pixel disintegration particles.
+ */
+export function drawDestructionParticles(ctx) {
+    if (destructionParticles.length === 0) return;
+
+    ctx.save();
+    for (let i = destructionParticles.length - 1; i >= 0; i--) {
+        let p = destructionParticles[i];
+        p.x += p.vx;
+        p.y += p.vy;
+        p.life -= p.decay;
+        p.radius *= 0.95; // Shrink particle as it burns out
+
+        if (p.life <= 0 || p.radius < 0.5) {
+            destructionParticles.splice(i, 1);
+        } else {
+            ctx.fillStyle = p.color;
+            ctx.globalAlpha = Math.max(0, p.life);
+            ctx.beginPath();
+            ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
+            ctx.fill();
+        }
+    }
+    ctx.restore();
+}
+
 export function drawCapturedTileBadges(ctx, canvas, tileCaptures, getRenderCoordinatesFunc, localTeam) {
     if (!tileCaptures) return;
     ctx.save();
     for (let key in tileCaptures) {
         let tileInfo = tileCaptures[key];
-        // Only draw badges for captured tiles, skipping 'gold core linked' so only GC shows badges
         if (tileInfo && tileInfo.capturedBy && tileInfo.type !== 'gold core linked') {
             let parts = key.split(',');
             if (parts.length === 2) {
@@ -176,7 +224,6 @@ export function drawCapturedTileFireAndSmoke(ctx, canvas, tileCaptures, getRende
 
     for (let key in tileCaptures) {
         let tileInfo = tileCaptures[key];
-        // Skip linked tiles so flag animations trigger solely on the central GC
         if (tileInfo && tileInfo.capturedBy && tileInfo.type !== 'gold core linked') {
             let prevTile = previousTileCapturesState[key];
             if (!prevTile || prevTile.capturedBy !== tileInfo.capturedBy) {
