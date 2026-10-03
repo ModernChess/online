@@ -13,6 +13,7 @@ export function initLobbyModule() {
     checkCachedSession();
     listenToActivePlayers();
     listenToGlobalChat();
+    listenToGlobalMatchesForTerminations(); // Added live listener for match terminations
 
     const logoutBtn = document.getElementById('logoutBtn');
     if (logoutBtn) {
@@ -70,13 +71,11 @@ function checkCachedSession() {
         
         const avatar = localStorage.getItem('arena_chess_avatar') || '😀';
         const faction = localStorage.getItem('arena_chess_faction') || 'Order';
-        // Default to Grandmarshall 1st class if not set
         const rank = localStorage.getItem('arena_chess_rank') || 'Grandmarshall (1st Class 🌟🌟🌟)';
         const factionColor = faction === 'Order' ? 'var(--secondary)' : 'var(--accent)';
         
         const welcomeUser = document.getElementById('welcomeUser');
         if (welcomeUser) {
-            // Displays complete new descending class format in lobby welcome header
             welcomeUser.innerHTML = `<span style="font-size: 1.1rem; margin-right: 4px; vertical-align: middle;">${avatar}</span> <span style="color: ${factionColor}; font-weight: 600;">[${faction} • ${rank}]</span> Logged in as: <strong>${savedUser}</strong>`;
         }
         
@@ -215,6 +214,27 @@ function checkForActiveMatchOnLogin() {
     });
 }
 
+// Safety check: Live listener to auto-dismiss popups and clear server cards if match ends remotely
+function listenToGlobalMatchesForTerminations() {
+    const matchesRef = ref(db, 'matches');
+    onValue(matchesRef, (snapshot) => {
+        const matches = snapshot.val() || {};
+        
+        // Check if any active match assigned to this user has now ended externally
+        for (let mId in matches) {
+            const match = matches[mId];
+            if (match.status === 'ended') {
+                // If this user has the popup open for this exact match, close it immediately
+                const modal = document.getElementById('rejoinPopupModal');
+                if (modal && modal.dataset.matchId === mId) {
+                    modal.remove();
+                    logToConsole("Active match was terminated by opponent. Rejoin prompt cleared.");
+                }
+            }
+        }
+    });
+}
+
 function showRejoinPopup(mId, match) {
     const existing = document.getElementById('rejoinPopupModal');
     if (existing) existing.remove();
@@ -224,6 +244,7 @@ function showRejoinPopup(mId, match) {
 
     const modal = document.createElement('div');
     modal.id = 'rejoinPopupModal';
+    modal.dataset.matchId = mId; // Stored to allow real-time cancellation
     modal.style.cssText = `
         position: fixed; top: 0; left: 0; width: 100%; height: 100%;
         background: rgba(0,0,0,0.8); display: flex; align-items: center; justify-content: center; z-index: 9999;
@@ -337,11 +358,12 @@ function loadServerList() {
             for (let sId in serversData) {
                 const server = serversData[sId];
                 
+                // Automatically clean up server nodes if their corresponding match is missing or ended
                 if (server.status === 'playing' && server.matchId) {
                     const match = matchesData[server.matchId];
                     if (!match || match.status === 'ended') {
                         remove(ref(db, `servers/${sId}`));
-                        continue;
+                        continue; 
                     }
                 }
 
