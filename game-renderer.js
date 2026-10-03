@@ -15,7 +15,7 @@ import { applyCameraTransform } from './viewport.js';
 import { getUnitRange, getShowUnitRange, getEngineerRangeTiles } from './unit-movement.js';
 import { getSuperunitsForTeam, getUnitMacroRangeTiles, stalematedUnits } from './combat-mechanics.js';
 import { tileCaptures } from './team-logic.js';
-import { spawnSmokeTrail, drawSmokeParticles, drawCapturedTileBadges, drawCapturedTileFireAndSmoke, drawDeploymentOverlay } from './renderer-helpers.js';
+import { spawnSmokeTrail, drawSmokeParticles, drawCapturedTileBadges, drawCapturedTileFireAndSmoke, drawDeploymentOverlay, drawDestructionParticles } from './renderer-helpers.js';
 
 let superunitBadgeCache = new Map();
 let cachedUnitsForDeployment = [];
@@ -56,9 +56,6 @@ export function drawGameScene(ctx, canvas, units, selectedUnit, localTeam, legal
     let boardWidth = canvas.width;
     let boardHeight = boardWidth * (rows / cols);
 
-    // FIX: Safely isolate the map background rotation so only the map image 
-    // is visually flipped 180° for the Red team, leaving the world coordinate 
-    // space for units and clicks perfectly aligned and easy to interact with.
     ctx.save();
     if (localTeam === 'red') {
         ctx.translate(boardWidth / 2, boardHeight / 2);
@@ -70,16 +67,10 @@ export function drawGameScene(ctx, canvas, units, selectedUnit, localTeam, legal
     }
     ctx.restore();
 
-    // Render captured tile team badges using helpers
     drawCapturedTileBadges(ctx, canvas, tileCaptures, getRenderCoordinates, localTeam);
-
-    // Render captured tile fire and smoke visual animation system
     drawCapturedTileFireAndSmoke(ctx, canvas, tileCaptures, getRenderCoordinates, localTeam);
-
-    // Smoke particle animation loop using helpers
     drawSmokeParticles(ctx);
-
-    // Deployment placement highlights using helpers
+    drawDestructionParticles(ctx); // Renders active fiery unit disintegration and burning particles
     drawDeploymentOverlay(ctx, canvas, tileCaptures, units, getRenderCoordinates, localTeam);
 
     if (selectedUnit && legalMoves && legalMoves.length > 0) {
