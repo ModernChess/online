@@ -1,3 +1,4 @@
+// game-engine.js
 import { db, ref, update } from './network.js';
 import { showScreen } from './ui-manager.js';
 import { cols, rows, spawnTeamUnits } from './game-config.js';
@@ -28,16 +29,22 @@ let movedUnitsThisTurn = new Set();
 let teamCoins = { blue: 0, red: 0 };
 let hasInitializedState = false;
 let isGameOver = false;
+let cleanupMatchListeners = null; // Stored listener unsubscribe handler
 
-// Timer tracking variables
 let turnStartTime = Date.now();
 let turnTimerInterval = null;
-const TURN_TIME_LIMIT_MS = 30000; // 30 seconds
+const TURN_TIME_LIMIT_MS = 30000;
 
 const logToConsole = createConsoleLogger();
 initTileCaptures();
 
 export function startGameSession(matchId, team, user, onLeaveCallback) {
+    // Clean up any stale listeners from previous matches first
+    if (cleanupMatchListeners) {
+        cleanupMatchListeners();
+        cleanupMatchListeners = null;
+    }
+
     currentMatchId = matchId;
     playerTeam = team;
     localTeam = team;
@@ -80,7 +87,17 @@ export function startGameSession(matchId, team, user, onLeaveCallback) {
     const turnRef = { get current() { return currentTurn; }, set current(v) { currentTurn = v; } };
     const animRef = { get current() { return animationFrameId; }, set current(v) { animationFrameId = v; } };
 
-    ensureGameActionButtons(matchIdRef, teamRef, turnRef, movedUnitsThisTurn, animRef, onLeaveCallback, logToConsole, () => updateTurnButtonState(currentTurn, playerTeam));
+    const handleSessionTeardown = () => {
+        if (animationFrameId) cancelAnimationFrame(animationFrameId);
+        if (turnTimerInterval) clearInterval(turnTimerInterval);
+        if (cleanupMatchListeners) {
+            cleanupMatchListeners();
+            cleanupMatchListeners = null;
+        }
+        if (onLeaveCallback) onLeaveCallback();
+    };
+
+    ensureGameActionButtons(matchIdRef, teamRef, turnRef, movedUnitsThisTurn, animRef, handleSessionTeardown, logToConsole, () => updateTurnButtonState(currentTurn, playerTeam));
     
     ensureBuyUnitsModal(
         logToConsole, 
@@ -95,7 +112,7 @@ export function startGameSession(matchId, team, user, onLeaveCallback) {
     initCanvasGame();
     startTurnTimer(matchIdRef);
     
-    listenToMatchUpdates(currentMatchId, playerTeam, units, logToConsole,
+    cleanupMatchListeners = listenToMatchUpdates(currentMatchId, playerTeam, units, logToConsole,
         () => {
             if (animationFrameId) cancelAnimationFrame(animationFrameId);
             if (turnTimerInterval) clearInterval(turnTimerInterval);
@@ -107,7 +124,7 @@ export function startGameSession(matchId, team, user, onLeaveCallback) {
                 logToConsole(`Turn changed to: ${turn}. Resetting turn timer.`);
                 movedUnitsThisTurn.clear();
                 units.forEach(u => u.hasMovedThisTurn = false);
-                turnStartTime = Date.now(); // Reset timer on turn sync
+                turnStartTime = Date.now();
             }
             
             currentTurn = turn;
@@ -117,7 +134,6 @@ export function startGameSession(matchId, team, user, onLeaveCallback) {
                 if (remoteData.status === 'ended' && !isGameOver) {
                     isGameOver = true;
                     if (remoteData.winner) {
-                        alert(`Game Over! Team ${remoteData.winner.toUpperCase()} won the match!`);
                         logToConsole(`Match ended remotely. Winner: ${remoteData.winner.toUpperCase()}`);
                     }
                 }
@@ -146,7 +162,7 @@ export function startGameSession(matchId, team, user, onLeaveCallback) {
                 hasInitializedState = true;
             }
 
-            checkVictoryConditions(units, currentMatchId, logToConsole, isGameOver, (val) => { isGameOver = val; });
+            checkVictoryConditions(units, currentMatchId, logToConsole, isGameOver, (val) => { isGameOver = val; }, handleSessionTeardown);
             updateTurnButtonState(currentTurn, playerTeam);
         }
     );
@@ -164,7 +180,6 @@ function startTurnTimer(matchIdRef) {
         let timeLeftSec = Math.ceil((TURN_TIME_LIMIT_MS - elapsed) / 1000);
         updateTurnTimerDisplay(timeLeftSec);
 
-        // If the active player exceeds 30 seconds, automatically force turn change
         if (elapsed >= TURN_TIME_LIMIT_MS && currentTurn === playerTeam) {
             logToConsole(`Turn time limit (30s) reached! Automatically changing turn.`);
             movedUnitsThisTurn.clear();
@@ -334,8 +349,13 @@ function initCanvasGame() {
                 let unitNameLower = (selectedUnit.name || '').toLowerCase();
                 let isInfantryOrTank = unitNameLower.includes('infantry') || unitNameLower.includes('tank');
 
+                let localGameOverTriggered = false;
+                const setLocalGameOver = (val) => { isGameOver = val; localGameOverTriggered = val; };
+
                 if (isInfantryOrTank) {
-                    if (checkBaseCaptureVictory(selectedUnit, moveKey, currentMatchId, logToConsole, isGameOver, (val) => { isGameOver = val; })) {
+                    if (checkBaseCaptureVictory(selectedUnit, moveKey, currentMatchId, logToConsole, isGameOver, setLocalGameOver)) {
+                        // Push final state before stopping
+                        syncMoveState(nextTurnSafe => {});
                         return;
                     }
 
@@ -383,8 +403,7 @@ function initCanvasGame() {
                     processDestructions(units);
                 }
 
-                checkVictoryConditions(units, currentMatchId, logToConsole, isGameOver, (val) => { isGameOver = val; });
-                if (isGameOver) return;
+                checkVictoryConditions(units, currentMatchId, logToConsole, isGameOver, setLocalGameOver);
                 
                 let nextTurn = currentTurn;
                 let turnChanged = false;
@@ -395,11 +414,12 @@ function initCanvasGame() {
                     nextTurn = playerTeam === 'blue' ? 'red' : 'blue';
                     currentTurn = nextTurn;
                     lastSeenTurn = nextTurn;
-                    turnStartTime = Date.now(); // Reset timer on turn change
+                    turnStartTime = Date.now();
                     turnChanged = true;
                     updateTurnButtonState(currentTurn, playerTeam);
                 }
 
+                // Push payload securely to Firebase before exiting on game over
                 if (currentMatchId) {
                     let sanitizedTileCaptures = {};
                     Object.keys(tileCaptures).forEach(k => {
@@ -427,6 +447,12 @@ function initCanvasGame() {
                 }
 
                 selectedUnit = null;
+                legalMoves = [];
+                selectionAnimStartTime = null;
+                clearUnitRangeOverlayButton();
+            }
+        } else {
+            selectedUnit = null;
                 legalMoves = [];
                 selectionAnimStartTime = null;
                 clearUnitRangeOverlayButton();
