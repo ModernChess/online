@@ -408,7 +408,7 @@ function initCanvasGame() {
                 let nextTurn = currentTurn;
                 let turnChanged = false;
 
-                if (movedUnitsThisTurn.size >= 1) {
+                 if (movedUnitsThisTurn.size >= 1) {
                     movedUnitsThisTurn.clear();
                     units.forEach(u => u.hasMovedThisTurn = false);
                     nextTurn = playerTeam === 'blue' ? 'red' : 'blue';
@@ -447,12 +447,6 @@ function initCanvasGame() {
                 }
 
                 selectedUnit = null;
-                legalMoves = [];
-                selectionAnimStartTime = null;
-                clearUnitRangeOverlayButton();
-            }
-        } else {
-            selectedUnit = null;
                 legalMoves = [];
                 selectionAnimStartTime = null;
                 clearUnitRangeOverlayButton();
