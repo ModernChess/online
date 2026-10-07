@@ -43,7 +43,7 @@ export function getRenderCoordinates(gridX, gridY, canvasWidth, localTeam) {
     return { x: renderX * cellSize, y: renderY * cellSize, cellSize: cellSize };
 }
 
-export function drawGameScene(ctx, canvas, units, selectedUnit, localTeam, legalMoves = [], selectionAnimStartTime = null) {
+export function drawGameScene(ctx, canvas, units, selectedUnit, localTeam, legalMoves = [], selectionAnimStartTime = null, stagedMove = null) {
     if (!ctx || !canvas) return;
     
     updateRendererUnits(units);
@@ -75,28 +75,50 @@ export function drawGameScene(ctx, canvas, units, selectedUnit, localTeam, legal
 
     if (selectedUnit && legalMoves && legalMoves.length > 0) {
         ctx.save();
-        ctx.globalAlpha = 0.4;
         legalMoves.forEach(m => {
             let movePos = getRenderCoordinates(m.c, m.r, canvas.width, localTeam);
             let px = movePos.x + 4;
             let py = movePos.y + 4;
             let pSize = movePos.cellSize - 8;
 
-            ctx.fillStyle = '#ff8000';
-            ctx.fillRect(px, py, pSize, pSize);
+            let isStaged = stagedMove && stagedMove.c === m.c && stagedMove.r === m.r;
 
-            let centerX = movePos.x + movePos.cellSize / 2;
-            let centerY = movePos.y + movePos.cellSize / 2;
-            let radius = movePos.cellSize * 0.18;
+            if (isStaged) {
+                // Staged tile: Prominent bright green outline with a fine black border for contrast
+                ctx.save();
+                // Draw black border underneath for contrast
+                ctx.strokeStyle = '#000000';
+                ctx.lineWidth = 5;
+                ctx.setLineDash([]);
+                ctx.strokeRect(px, py, pSize, pSize);
 
-            ctx.fillStyle = '#e74c3c';
-            ctx.strokeStyle = '#000000';
-            ctx.lineWidth = 2;
+                // Draw brighter neon green outline on top
+                ctx.strokeStyle = '#00ff66';
+                ctx.lineWidth = 3;
+                ctx.setLineDash([]);
+                ctx.strokeRect(px, py, pSize, pSize);
+                ctx.restore();
+            } else {
+                // Standard legal move highlight
+                ctx.save();
+                ctx.globalAlpha = 0.4;
+                ctx.fillStyle = '#ff8000';
+                ctx.fillRect(px, py, pSize, pSize);
 
-            ctx.beginPath();
-            ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
-            ctx.fill();
-            ctx.stroke();
+                let centerX = movePos.x + movePos.cellSize / 2;
+                let centerY = movePos.y + movePos.cellSize / 2;
+                let radius = movePos.cellSize * 0.18;
+
+                ctx.fillStyle = '#e74c3c';
+                ctx.strokeStyle = '#000000';
+                ctx.lineWidth = 2;
+
+                ctx.beginPath();
+                ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.stroke();
+                ctx.restore();
+            }
         });
         ctx.restore();
     }
