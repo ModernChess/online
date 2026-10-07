@@ -22,6 +22,7 @@ let currentTurn = 'blue';
 let lastSeenTurn = null;
 let selectedUnit = null;
 let legalMoves = [];
+let stagedMove = null; // Tracks the two-step click confirmation target
 let selectionAnimStartTime = null;
 let animationFrameId = null;
 let units = [];
@@ -227,7 +228,8 @@ function initCanvasGame() {
             }
         });
 
-        drawGameScene(ctx, canvas, units, selectedUnit, localTeam, legalMoves, selectionAnimStartTime);
+        // Pass stagedMove to the renderer
+        drawGameScene(ctx, canvas, units, selectedUnit, localTeam, legalMoves, selectionAnimStartTime, stagedMove);
         
         if (selectedUnit) {
             let renderPos = getRenderCoordinates(selectedUnit.gridX, selectedUnit.gridY, canvas.width, localTeam);
@@ -279,6 +281,7 @@ function initCanvasGame() {
                 cleanupUnitDeployerPopup();
                 selectedUnit = null;
                 legalMoves = [];
+                stagedMove = null;
                 clearUnitRangeOverlayButton();
                 return;
             }
@@ -287,6 +290,7 @@ function initCanvasGame() {
         const clickedUnit = units.find(u => u.gridX === clickedCol && u.gridY === clickedRow);
 
         if (clickedUnit) {
+            stagedMove = null; // Clear staging if clicking any unit
             if (clickedUnit.team === playerTeam) {
                 selectedUnit = clickedUnit;
                 selectionAnimStartTime = performance.now();
@@ -316,6 +320,7 @@ function initCanvasGame() {
             if (selectedUnit.team !== playerTeam || currentTurn !== playerTeam) {
                 selectedUnit = null;
                 legalMoves = [];
+                stagedMove = null;
                 selectionAnimStartTime = null;
                 clearUnitRangeOverlayButton();
                 return;
@@ -325,6 +330,7 @@ function initCanvasGame() {
                 logToConsole(`Movement Blocked: ${selectedUnit.name} already moved this turn.`);
                 selectedUnit = null;
                 legalMoves = [];
+                stagedMove = null;
                 selectionAnimStartTime = null;
                 clearUnitRangeOverlayButton();
                 return;
@@ -332,6 +338,16 @@ function initCanvasGame() {
 
             let isLegalMove = legalMoves.some(m => m.c === clickedCol && m.r === clickedRow);
             if (isLegalMove) {
+                // FIRST CLICK: Stage the move if not already staged
+                if (!stagedMove || stagedMove.c !== clickedCol || stagedMove.r !== clickedRow) {
+                    stagedMove = { c: clickedCol, r: clickedRow };
+                    logToConsole(`Staged move for ${selectedUnit.name} to [${clickedCol}, ${clickedRow}]. Click again to confirm.`);
+                    return;
+                }
+
+                // SECOND CLICK: Confirm and execute movement
+                stagedMove = null;
+
                 triggerMoveSound(selectedUnit.name);
 
                 selectedUnit.animFromX = selectedUnit.gridX;
@@ -354,7 +370,6 @@ function initCanvasGame() {
 
                 if (isInfantryOrTank) {
                     if (checkBaseCaptureVictory(selectedUnit, moveKey, currentMatchId, logToConsole, isGameOver, setLocalGameOver)) {
-                        // Push final state before stopping
                         syncMoveState(nextTurnSafe => {});
                         return;
                     }
@@ -408,7 +423,8 @@ function initCanvasGame() {
                 let nextTurn = currentTurn;
                 let turnChanged = false;
 
-                 if (movedUnitsThisTurn.size >= 1) {
+               
+ if (movedUnitsThisTurn.size >= 1) {
                     movedUnitsThisTurn.clear();
                     units.forEach(u => u.hasMovedThisTurn = false);
                     nextTurn = playerTeam === 'blue' ? 'red' : 'blue';
@@ -419,7 +435,6 @@ function initCanvasGame() {
                     updateTurnButtonState(currentTurn, playerTeam);
                 }
 
-                // Push payload securely to Firebase before exiting on game over
                 if (currentMatchId) {
                     let sanitizedTileCaptures = {};
                     Object.keys(tileCaptures).forEach(k => {
@@ -448,13 +463,21 @@ function initCanvasGame() {
 
                 selectedUnit = null;
                 legalMoves = [];
+                stagedMove = null;
                 selectionAnimStartTime = null;
+                clearUnitRangeOverlayButton();
+            } else {
+                // Clicked an invalid outside tile
+                stagedMove = null;
+                selectedUnit = null;
+                legalMoves = [];
                 clearUnitRangeOverlayButton();
             }
         } else {
+            stagedMove = null;
             selectedUnit = null;
             legalMoves = [];
             clearUnitRangeOverlayButton();
         }
     };
-}
+}                       
