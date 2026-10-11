@@ -12,10 +12,10 @@ import {
     mapImg, mapLoaded, isWaterTerrain 
 } from './game-config.js';
 import { applyCameraTransform } from './viewport.js';
-import { getUnitRange, getShowUnitRange, getEngineerRangeTiles, getMineRangeTiles } from './unit-movement.js';
-import { getSuperunitsForTeam, getUnitMacroRangeTiles, stalematedUnits, artilleryVulnerableUnits } from './combat-mechanics.js';
+import { getUnitRange, getShowUnitRange, getEngineerRangeTiles } from './unit-movement.js';
+import { getSuperunitsForTeam, getUnitMacroRangeTiles, stalematedUnits } from './combat-mechanics.js';
 import { tileCaptures } from './team-logic.js';
-import { spawnSmokeTrail, drawSmokeParticles, drawCapturedTileBadges, drawCapturedTileFireAndSmoke, drawDeploymentOverlay, drawCombatAnimations } from './renderer-helpers.js';
+import { spawnSmokeTrail, drawSmokeParticles, drawCapturedTileBadges, drawCapturedTileFireAndSmoke, drawDeploymentOverlay, drawDestructionParticles } from './renderer-helpers.js';
 
 let superunitBadgeCache = new Map();
 let cachedUnitsForDeployment = [];
@@ -70,10 +70,8 @@ export function drawGameScene(ctx, canvas, units, selectedUnit, localTeam, legal
     drawCapturedTileBadges(ctx, canvas, tileCaptures, getRenderCoordinates, localTeam);
     drawCapturedTileFireAndSmoke(ctx, canvas, tileCaptures, getRenderCoordinates, localTeam);
     drawSmokeParticles(ctx);
+    drawDestructionParticles(ctx); // Renders active fiery unit disintegration and burning particles
     drawDeploymentOverlay(ctx, canvas, tileCaptures, units, getRenderCoordinates, localTeam);
-
-    // Render active combat explosion and projectile trail effects
-    drawCombatAnimations(ctx, canvas);
 
     if (selectedUnit && legalMoves && legalMoves.length > 0) {
         ctx.save();
@@ -86,18 +84,22 @@ export function drawGameScene(ctx, canvas, units, selectedUnit, localTeam, legal
             let isStaged = stagedMove && stagedMove.c === m.c && stagedMove.r === m.r;
 
             if (isStaged) {
+                // Staged tile: Prominent bright green outline with a fine black border for contrast
                 ctx.save();
+                // Draw black border underneath for contrast
                 ctx.strokeStyle = '#000000';
                 ctx.lineWidth = 5;
                 ctx.setLineDash([]);
                 ctx.strokeRect(px, py, pSize, pSize);
 
+                // Draw brighter neon green outline on top
                 ctx.strokeStyle = '#00ff66';
                 ctx.lineWidth = 3;
                 ctx.setLineDash([]);
                 ctx.strokeRect(px, py, pSize, pSize);
                 ctx.restore();
             } else {
+                // Standard legal move highlight
                 ctx.save();
                 ctx.globalAlpha = 0.4;
                 ctx.fillStyle = '#ff8000';
@@ -197,6 +199,30 @@ export function drawGameScene(ctx, canvas, units, selectedUnit, localTeam, legal
                     ctx.setLineDash([4, 4]);
                     ctx.strokeRect(rectX, rectY, rectWidth, rectHeight);
                 });
+
+                if (unit.name === 'Engineer') {
+                    let engineerTiles = getEngineerRangeTiles(unit);
+                    let isOnWater = isWaterTerrain(unit.gridX, unit.gridY);
+
+                    engineerTiles.forEach(tile => {
+                        let tilePos = getRenderCoordinates(tile.c, tile.r, canvas.width, localTeam);
+                        let centerX = tilePos.x + tilePos.cellSize / 2;
+                        let centerY = tilePos.y + tilePos.cellSize / 2;
+                        let radius = tilePos.cellSize * 0.18;
+
+                        ctx.save();
+                        ctx.globalAlpha = 1.0; 
+                        ctx.fillStyle = isOnWater ? '#2980b9' : '#1e8449';
+                        ctx.strokeStyle = '#000000';
+                        ctx.lineWidth = 2;
+
+                        ctx.beginPath();
+                        ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
+                        ctx.fill();
+                        ctx.stroke();
+                        ctx.restore();
+                    });
+                }
             }
             ctx.restore();
         }
@@ -312,33 +338,29 @@ export function drawGameScene(ctx, canvas, units, selectedUnit, localTeam, legal
 
         let unitImg = null;
         let isLoaded = false;
-        let normalizedUnitName = (unit.name || '').toLowerCase().replace(/[\s-]/g, '');
-
         if (unit.team === 'blue') {
-            if (normalizedUnitName === 'antiair') { unitImg = blueAntiairImg; isLoaded = blueAntiairLoaded; }
-            else if (normalizedUnitName === 'artillery') { unitImg = blueArtilleryImg; isLoaded = blueArtilleryLoaded; }
-            else if (normalizedUnitName === 'engineer') { unitImg = blueEngineerImg; isLoaded = blueEngineerLoaded; }
-            else if (normalizedUnitName === 'infantry') { unitImg = blueInfantryImg; isLoaded = blueInfantryLoaded; }
-            else if (normalizedUnitName === 'mine') { unitImg = blueMineImg; isLoaded = blueMineLoaded; }
-            else if (normalizedUnitName === 'plane') { unitImg = bluePlaneImg; isLoaded = bluePlaneLoaded; }
-            else if (normalizedUnitName === 'ship') { unitImg = blueShipImg; isLoaded = blueShipLoaded; }
-            else if (normalizedUnitName === 'tank') { unitImg = blueTankImg; isLoaded = blueTankLoaded; }
+            if (unit.name === 'Anti-Air') { unitImg = blueAntiairImg; isLoaded = blueAntiairLoaded; }
+            else if (unit.name === 'Artillery') { unitImg = blueArtilleryImg; isLoaded = blueArtilleryLoaded; }
+            else if (unit.name === 'Engineer') { unitImg = blueEngineerImg; isLoaded = blueEngineerLoaded; }
+            else if (unit.name === 'Infantry') { unitImg = blueInfantryImg; isLoaded = blueInfantryLoaded; }
+            else if (unit.name === 'Mine') { unitImg = blueMineImg; isLoaded = blueMineLoaded; }
+            else if (unit.name === 'Plane') { unitImg = bluePlaneImg; isLoaded = bluePlaneLoaded; }
+            else if (unit.name === 'Ship') { unitImg = blueShipImg; isLoaded = blueShipLoaded; }
+            else if (unit.name === 'Tank') { unitImg = blueTankImg; isLoaded = blueTankLoaded; }
         } else {
-            if (normalizedUnitName === 'antiair') { unitImg = redAntiairImg; isLoaded = redAntiairLoaded; }
-            else if (normalizedUnitName === 'artillery') { unitImg = redArtilleryImg; isLoaded = redArtilleryLoaded; }
-            else if (normalizedUnitName === 'engineer') { unitImg = redEngineerImg; isLoaded = redEngineerLoaded; }
-            else if (normalizedUnitName === 'infantry') { unitImg = redInfantryImg; isLoaded = redInfantryLoaded; }
-            else if (normalizedUnitName === 'mine') { unitImg = redMineImg; isLoaded = redMineLoaded; }
-            else if (normalizedUnitName === 'plane') { unitImg = redPlaneImg; isLoaded = redPlaneLoaded; }
-            else if (normalizedUnitName === 'ship') { unitImg = redShipImg; isLoaded = redShipLoaded; }
-            else if (normalizedUnitName === 'tank') { unitImg = redTankImg; isLoaded = redTankLoaded; }
+            if (unit.name === 'Anti-Air') { unitImg = redAntiairImg; isLoaded = redAntiairLoaded; }
+            else if (unit.name === 'Artillery') { unitImg = redArtilleryImg; isLoaded = redArtilleryLoaded; }
+            else if (unit.name === 'Engineer') { unitImg = redEngineerImg; isLoaded = redEngineerLoaded; }
+            else if (unit.name === 'Infantry') { unitImg = redInfantryImg; isLoaded = redInfantryLoaded; }
+            else if (unit.name === 'Mine') { unitImg = redMineImg; isLoaded = redMineLoaded; }
+            else if (unit.name === 'Plane') { unitImg = redPlaneImg; isLoaded = redPlaneLoaded; }
+            else if (unit.name === 'Ship') { unitImg = redShipImg; isLoaded = redShipLoaded; }
+            else if (unit.name === 'Tank') { unitImg = redTankImg; isLoaded = redTankLoaded; }
         }
 
         let cellCenterX = unit.animX + targetPos.cellSize / 2;
         let cellCenterY = renderDrawY + targetPos.cellSize / 2;
-        
-        let sizeMultiplier = (normalizedUnitName === 'mine') ? 1.2 : 2.0;
-        let drawSize = (targetPos.cellSize - 4) * sizeMultiplier; 
+        let drawSize = (targetPos.cellSize - 4) * 2.0; 
 
         ctx.save();
         ctx.translate(cellCenterX, cellCenterY);
@@ -356,7 +378,7 @@ export function drawGameScene(ctx, canvas, units, selectedUnit, localTeam, legal
         } else {
             ctx.fillStyle = unit.team === 'blue' ? '#2196F3' : '#ff5252';
             ctx.beginPath();
-            ctx.arc(0, 0, targetPos.cellSize / (normalizedUnitName === 'mine' ? 3.5 : 2.5), 0, Math.PI * 2);
+            ctx.arc(0, 0, targetPos.cellSize / 2.5, 0, Math.PI * 2);
             ctx.fill();
         }
         ctx.restore();
