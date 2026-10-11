@@ -1,6 +1,8 @@
 // combat-mechanics.js - Handles combat power definitions, superunit clustering with enemy bridging, target tracking, instant stalemates, and reinforcements
 import { cols, rows, isWaterTerrain } from './game-config.js';
 import { getUnitRange } from './unit-movement.js';
+import { triggerDestructionEffect } from './renderer-helpers.js';
+import { getRenderCoordinates } from './game-renderer.js';
 
 export let unitsToDestroy = [];
 export let stalematedUnits = new Set(); // Registry tracking unit IDs currently in a stalemated/locked state
@@ -187,7 +189,6 @@ export function resolveCombat(unitsList, logCallback) {
 
     updateStalemates(unitsList);
 
-    // 1. General Macro-Square Range Detection Logging
     unitsList.forEach(unit => {
         let rangeTiles = getUnitMacroRangeTiles(unit);
         if (rangeTiles.length > 0) {
@@ -204,7 +205,6 @@ export function resolveCombat(unitsList, logCallback) {
         }
     });
 
-    // 2. Ship Ranged Combat Resolution
     let ships = unitsList.filter(u => u.name === 'Ship');
     ships.forEach(ship => {
         let rangeTiles = getUnitMacroRangeTiles(ship);
@@ -225,14 +225,34 @@ export function resolveCombat(unitsList, logCallback) {
         });
     });
 
-    // Note: Artillery automated resolution removed. Artillery attacks are now manually targeted and resolved via user selection when range is toggled.
-
-    // 4. Anti-Air Ranged Combat Resolution
-    let antiairs = unitsList.filter(u => {
-        let normName = (u.name || '').toLowerCase().replace(/[\s-]/g, '');
-        return normName === 'antiair';
+    let artilleries = unitsList.filter(u => u.name === 'Artillery');
+    artilleries.forEach(artillery => {
+        let rangeTiles = getUnitMacroRangeTiles(artillery);
+        rangeTiles.forEach(tile => {
+            let enemy = unitsList.find(u => u.gridX === tile.c && u.gridY === tile.r && u.team !== artillery.team);
+            if (enemy && artilleryVulnerableUnits.has(enemy.name)) {
+                if (!destroyedIds.has(enemy.id) && !enemy.stalemate && !stalematedUnits.has(enemy.id)) {
+                    let success = Math.random() < 0.5;
+                    if (success) {
+                        destroyedIds.add(enemy.id);
+                        unitsToDestroy.push({ 
+                            unit: enemy, destroyedBy: 'Artillery',
+                            reason: `Artillery (${artillery.team}) successfully shelled and destroyed enemy unit ${enemy.name} (${enemy.team}) (50% roll passed)` 
+                        });
+                        if (logCallback) {
+                            logCallback(`Combat! Artillery (${artillery.team}) scored a direct hit and destroyed enemy ${enemy.name} (${enemy.team})!`);
+                        }
+                    } else {
+                        if (logCallback) {
+                            logCallback(`Combat! Artillery (${artillery.team}) shelled enemy ${enemy.name} (${enemy.team}), but the shot missed (failed 50% roll)!`);
+                        }
+                    }
+                }
+            }
+        });
     });
-    
+
+    let antiairs = unitsList.filter(u => u.name === 'Anti-Air');
     antiairs.forEach(antiair => {
         let rangeTiles = getUnitMacroRangeTiles(antiair);
         rangeTiles.forEach(tile => {
@@ -252,7 +272,6 @@ export function resolveCombat(unitsList, logCallback) {
         });
     });
 
-    // 5. Mine Ranged Combat Resolution (Terrain-Dependent Vulnerability)
     let mines = unitsList.filter(u => u.name === 'Mine');
     mines.forEach(mine => {
         let isOnWater = isWaterTerrain(mine.gridX, mine.gridY);
@@ -276,53 +295,27 @@ export function resolveCombat(unitsList, logCallback) {
         });
     });
 
-    // 6. Plane Adjacent Combat Resolution (including Plane-to-Plane mutual destruction)
-    let planes = unitsList.filter(u => u.name === 'Plane' && !u.stalemate && !stalematedUnits.has(u.id));
-    planes.forEach(planeA => {
-        let enemyUnits = unitsList.filter(u => u.team !== planeA.team);
+    let planes = unitsList.filter(u => u.name === 'Plane');
+    planes.forEach(plane => {
+        let enemyUnits = unitsList.filter(u => u.team !== plane.team);
         enemyUnits.forEach(enemy => {
-            let isVulnerableGround = planeVulnerableUnits.has(enemy.name);
-            let isEnemyPlane = enemy.name === 'Plane';
-
-            if (isVulnerableGround && !enemy.stalemate && !stalematedUnits.has(enemy.id)) {
-                if (areUnitsAdjacent(planeA, enemy)) {
-                    if (!destroyedIds.has(enemy.id)) {
+            if (planeVulnerableUnits.has(enemy.name)) {
+                if (areUnitsAdjacent(plane, enemy)) {
+                    if (!destroyedIds.has(enemy.id) && !enemy.stalemate && !stalematedUnits.has(enemy.id)) {
                         destroyedIds.add(enemy.id);
                         unitsToDestroy.push({ 
                             unit: enemy, destroyedBy: 'Plane',
-                            reason: `Plane (${planeA.team}) adjacently attacked and destroyed vulnerable enemy unit ${enemy.name} (${enemy.team})` 
+                            reason: `Plane (${plane.team}) adjacently attacked and destroyed vulnerable enemy unit ${enemy.name} (${enemy.team})` 
                         });
                         if (logCallback) {
-                            logCallback(`Combat! Plane (${planeA.team}) destroyed adjacent enemy ${enemy.name} (${enemy.team})!`);
+                            logCallback(`Combat! Plane (${plane.team}) destroyed adjacent enemy ${enemy.name} (${enemy.team})!`);
                         }
-                    }
-                }
-            } else if (isEnemyPlane && !enemy.stalemate && !stalematedUnits.has(enemy.id)) {
-                let planeB = enemy;
-                if (areUnitsAdjacent(planeA, planeB)) {
-                    if (!destroyedIds.has(planeA.id)) {
-                        destroyedIds.add(planeA.id);
-                        unitsToDestroy.push({ 
-                            unit: planeA, destroyedBy: 'Plane Collision',
-                            reason: `Plane (${planeA.team}) collided in dogfight with enemy Plane (${planeB.team}) causing mutual destruction` 
-                        });
-                    }
-                    if (!destroyedIds.has(planeB.id)) {
-                        destroyedIds.add(planeB.id);
-                        unitsToDestroy.push({ 
-                            unit: planeB, destroyedBy: 'Plane Collision',
-                            reason: `Plane (${planeB.team}) collided in dogfight with enemy Plane (${planeA.team}) causing mutual destruction` 
-                        });
-                    }
-                    if (logCallback) {
-                        logCallback(`Combat! Planes from opposing teams engaged in a dogfight and mutually destroyed each other!`);
                     }
                 }
             }
         });
     });
 
-    // 7. Superunit Equal-Power Locks, Stalemates, and Reinforcement/Rescue Breaking
     let blueSuperunits = getSuperunitsForTeamBase('blue', unitsList);
     let redSuperunits = getSuperunitsForTeamBase('red', unitsList);
 
@@ -340,7 +333,6 @@ export function resolveCombat(unitsList, logCallback) {
                                 destroyedIds.add(u.id);
                                 unitsToDestroy.push({
                                     unit: u, destroyedBy: 'Reinforced Superunit',
-                                    attackerX: suBlue.units[0].gridX, attackerY: suBlue.units[0].gridY,
                                     reason: `Blue reinforcement broke stalemate and destroyed Red unit ${u.name} due to power advantage (${suBlue.power} vs ${suRed.power})`
                                 });
                             }
@@ -355,7 +347,6 @@ export function resolveCombat(unitsList, logCallback) {
                                 destroyedIds.add(u.id);
                                 unitsToDestroy.push({
                                     unit: u, destroyedBy: 'Reinforced Superunit',
-                                    attackerX: suRed.units[0].gridX, attackerY: suRed.units[0].gridY,
                                     reason: `Red reinforcement broke stalemate and destroyed Blue unit ${u.name} due to power advantage (${suRed.power} vs ${suBlue.power})`
                                 });
                             }
@@ -404,8 +395,6 @@ export function resolveCombat(unitsList, logCallback) {
         });
     });
 
-    
-// 8. Ship-to-Ship Adjacent Mutual Destruction Check
     let shipsList = unitsList.filter(u => u.name === 'Ship' && !u.stalemate && !stalematedUnits.has(u.id));
     shipsList.forEach(shipA => {
         let enemyShips = unitsList.filter(u => u.name === 'Ship' && u.team !== shipA.team && !u.stalemate && !stalematedUnits.has(u.id));
@@ -432,7 +421,6 @@ export function resolveCombat(unitsList, logCallback) {
         });
     });
 
-    // 9. Infantry & Tank Adjacent Combat Resolution
     let infantryAndTanks = unitsList.filter(u => (u.name === 'Infantry' || u.name === 'Tank') && !u.stalemate && !stalematedUnits.has(u.id));
     infantryAndTanks.forEach(attacker => {
         let enemyUnits = unitsList.filter(u => u.team !== attacker.team);
@@ -457,9 +445,18 @@ export function resolveCombat(unitsList, logCallback) {
     return unitsToDestroy.length > 0;
 }
 
-export function processDestructions(unitsList) {
+export function processDestructions(unitsList, canvasWidth = 600, localTeam = 'blue') {
     if (unitsToDestroy.length === 0) return false;
     let targetIds = new Set(unitsToDestroy.map(item => item.unit.id));
+
+    // Trigger visual particle burning/disintegration effect for each destroyed unit using dynamic canvas resolution
+    unitsList.forEach(u => {
+        if (targetIds.has(u.id)) {
+            let canvasEl = typeof document !== 'undefined' ? document.querySelector('canvas') : null;
+            let actualWidth = (canvasEl && canvasEl.width > 0) ? canvasEl.width : canvasWidth;
+            triggerDestructionEffect(u, getRenderCoordinates, actualWidth, localTeam);
+        }
+    });
 
     for (let i = unitsList.length - 1; i >= 0; i--) {
         if (targetIds.has(unitsList[i].id)) {
