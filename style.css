@@ -298,3 +298,33 @@ p {
         font-size: 0.85rem !important;
     }
 }
+
+/* Independent Range Button & Overlay Styles - Expanded Hitbox & Size */
+.unit-range-btn {
+    position: absolute;
+    width: 44px;
+    height: 44px;
+    background: var(--secondary);
+    color: #ffffff;
+    font-size: 18px;
+    font-weight: bold;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    z-index: 25;
+    text-shadow: 1px 1px 1px rgba(0, 0, 0, 0.8);
+    border: 2px solid #ffffff;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.6);
+    padding: 12px;
+    margin: -12px;
+}
+
+.range-highlight-tile {
+    position: absolute;
+    background: rgba(33, 150, 243, 0.35);
+    border: 1px dashed rgba(255, 255, 255, 0.8);
+    pointer-events: none;
+    box-sizing: border-box;
+}
